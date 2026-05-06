@@ -137,3 +137,42 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
 .modal-tab { border-color: transparent; color: #64748b; }
 .modal-tab:hover { color: #1e293b; }
 .modal-tab.active { border-color: var(--sort-active); color: var(--sort-active); font-weight: 600; }
+
+/* ── Dark mode text overrides ────────────────────────────────────────── */
+:root {
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --input-bg: #fff;
+  --input-border: #e2e8f0;
+}
+
+/* Override Tailwind text utilities in dark mode */
+[data-theme="dark"] .text-slate-900,
+[data-theme="dark"] .text-slate-800,
+[data-theme="dark"] .text-slate-700 { color: #e2e8f0 !important; }
+[data-theme="dark"] .text-slate-600 { color: #c9d1d9 !important; }
+[data-theme="dark"] .text-slate-500 { color: #94a3b8 !important; }
+[data-theme="dark"] .text-slate-400 { color: #6e7681 !important; }
+[data-theme="dark"] .text-slate-300 { color: #484f58 !important; }
+
+/* Cards and containers */
+[data-theme="dark"] .mc { color: #c9d1d9; }
+
+/* Tables */
+[data-theme="dark"] td { color: #c9d1d9; }
+[data-theme="dark"] th { color: #8b949e; }
+[data-theme="dark"] .section-toggle span.text-base { color: #e2e8f0 !important; }
+
+/* Inputs */
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: var(--input-bg) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--input-border) !important;
+}
+
+/* Tab labels */
+[data-theme="dark"] .tab .tab-label { color: #94a3b8; }
+[data-theme="dark"] .tab.active .tab-label { color: #e2e8f0; }

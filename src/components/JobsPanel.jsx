@@ -147,12 +147,12 @@ export default function JobsPanel({ jobs, connId }) {
     textAlign: 'left',
     fontSize: 10,
     fontWeight: 700,
-    color: '#64748b',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '.05em',
     whiteSpace: 'nowrap',
-    borderBottom: '2px solid #e2e8f0',
-    background: '#f8fafc',
+    borderBottom: '2px solid var(--input-border)',
+    background: 'var(--card-bg)',
     cursor: 'pointer',
     userSelect: 'none',
   }
@@ -168,13 +168,13 @@ export default function JobsPanel({ jobs, connId }) {
         </span>
         <div className="flex items-center gap-3 text-xs font-medium ml-3 flex-1">
           {counts.running > 0 && (
-            <><span style={{ color: '#16a34a', fontSize: 9 }}>●</span><span style={{ color: '#475569' }}>{counts.running} Running</span></>
+            <><span style={{ color: '#16a34a', fontSize: 9 }}>●</span><span style={{ color: 'var(--text-secondary)' }}>{counts.running} Running</span></>
           )}
           {counts.failed > 0 && (
             <><span style={{ color: '#dc2626', fontSize: 9 }}>●</span><span style={{ color: '#dc2626', fontWeight: 600 }}>{counts.failed} Failed</span></>
           )}
           {counts.running === 0 && counts.failed === 0 && (
-            <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: 11 }}>All idle</span>
+            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 11 }}>All idle</span>
           )}
         </div>
         <input
@@ -182,9 +182,9 @@ export default function JobsPanel({ jobs, connId }) {
           value={jobsSearch}
           onChange={e => dispatch({ type: 'SET_JOBS_SEARCH', connId, search: e.target.value })}
           placeholder="Search jobs…"
-          style={{ fontSize: 11, border: '1.5px solid #e2e8f0', borderRadius: 7, padding: '4px 10px', width: 148, outline: 'none', background: '#fff', color: '#334155', flexShrink: 0 }}
+          style={{ fontSize: 11, border: '1.5px solid var(--input-border)', borderRadius: 7, padding: '4px 10px', width: 148, outline: 'none', background: 'var(--input-bg)', color: 'var(--text-primary)', flexShrink: 0 }}
           onFocus={e => e.target.style.borderColor = '#3b82f6'}
-          onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+          onBlur={e => e.target.style.borderColor = 'var(--input-border)'}
         />
       </div>
       {/* Filter pills */}
@@ -195,7 +195,7 @@ export default function JobsPanel({ jobs, connId }) {
             <button
               key={p.key}
               onClick={() => dispatch({ type: 'SET_JOBS_FILTER', connId, filter: p.key })}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 11, fontWeight: active ? 700 : 500, borderRadius: 99, border: `1.5px solid ${active ? '#3b82f6' : '#e2e8f0'}`, background: active ? '#eff6ff' : '#f8fafc', color: active ? '#1d4ed8' : '#64748b', cursor: 'pointer', transition: 'all .12s', whiteSpace: 'nowrap' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 11, fontWeight: active ? 700 : 500, borderRadius: 99, border: `1.5px solid ${active ? '#3b82f6' : 'var(--input-border)'}`, background: active ? 'var(--badge-bg)' : 'var(--card-bg)', color: active ? 'var(--sort-active)' : 'var(--text-secondary)', cursor: 'pointer', transition: 'all .12s', whiteSpace: 'nowrap' }}
             >
               {p.dot && <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.dot, display: 'inline-block', flexShrink: 0 }} />}
               {p.label}
@@ -214,7 +214,7 @@ export default function JobsPanel({ jobs, connId }) {
                 return (
                   <th
                     key={c.key}
-                    style={{ ...TH_BASE, color: active ? '#3b82f6' : '#64748b' }}
+                    style={{ ...TH_BASE, color: active ? 'var(--sort-active)' : 'var(--text-secondary)' }}
                     onClick={() => handleSort(c.key)}
                   >
                     {c.label}
@@ -236,7 +236,7 @@ export default function JobsPanel({ jobs, connId }) {
         style={{ minHeight: 0 }}
       >
         {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontStyle: 'italic', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 12 }}>
             {(jobs || []).length === 0 ? 'No jobs found — user may lack msdb read permission' : 'No jobs match filter'}
           </div>
         ) : (
@@ -248,7 +248,7 @@ export default function JobsPanel({ jobs, connId }) {
               const canStart  = !isRunning && j.enabled === 1
               const lastDate  = j.last_run_date ? j.last_run_date.replace('T', ' ') : '—'
               const nextDate  = j.next_run_date ? j.next_run_date.replace('T', ' ') : '—'
-              const TDs = { padding: '5px 16px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap', fontSize: 11, color: '#334155' }
+              const TDs = { padding: '5px 16px', borderBottom: '1px solid var(--divider)', whiteSpace: 'nowrap', fontSize: 11, color: 'var(--text-primary)' }
               return (
                 <div key={vItem.key} style={{ position: 'absolute', top: vItem.start, height: vItem.size, width: '100%', display: 'table', tableLayout: 'fixed' }}>
                   <table className="w-full" style={{ borderCollapse: 'collapse', tableLayout: 'fixed', background: isRunning ? '#f0fdf4' : isFailed ? '#fff8f8' : '' }}>
@@ -256,12 +256,12 @@ export default function JobsPanel({ jobs, connId }) {
                       <tr>
                         <td style={{ ...TDs, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isRunning || isFailed ? 600 : 400 }} title={j.job_name}>
                           {j.job_name}
-                          {isRunning && <span style={{ color: '#94a3b8', fontSize: 10 }}> ({j.running_sec}s)</span>}
+                          {isRunning && <span style={{ color: 'var(--text-muted)', fontSize: 10 }}> ({j.running_sec}s)</span>}
                         </td>
                         <td style={TDs}>{fmtJobStatus(j.status)}</td>
-                        <td style={{ ...TDs, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{lastDate}</td>
-                        <td style={{ ...TDs, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{fmtJobDuration(j.last_run_duration)}</td>
-                        <td style={{ ...TDs, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{nextDate}</td>
+                        <td style={{ ...TDs, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{lastDate}</td>
+                        <td style={{ ...TDs, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{fmtJobDuration(j.last_run_duration)}</td>
+                        <td style={{ ...TDs, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{nextDate}</td>
                         <td style={TDs}>
                           {canStart && (
                             <button

@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 const TH = 'px-3 py-2 text-left font-semibold whitespace-nowrap border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500'
-const TD = 'px-3 py-1.5 border-b border-slate-50 whitespace-nowrap text-xs text-slate-700'
+const TD = 'px-3 py-1.5 border-b whitespace-nowrap text-xs'
 
 function fmtCell(val, type) {
   if (val === null || val === undefined) {

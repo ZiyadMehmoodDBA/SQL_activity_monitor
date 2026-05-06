@@ -5,7 +5,7 @@ function HealthBar({ label, value, displayVal, badgeText, color, pct }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
           {label}
         </span>
         <div className="flex items-center gap-2">
@@ -18,7 +18,7 @@ function HealthBar({ label, value, displayVal, badgeText, color, pct }) {
           </span>
         </div>
       </div>
-      <div style={{ height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+      <div style={{ height: 6, background: 'var(--divider)', borderRadius: 99, overflow: 'hidden' }}>
         <div style={{ height: '100%', borderRadius: 99, width: `${Math.min(pct, 100)}%`, background: color, transition: 'width 0.5s ease, background 0.3s' }} />
       </div>
     </div>
@@ -55,7 +55,7 @@ export default function MemoryHealth({ conn }) {
         <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
         </svg>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
           Memory Health
         </span>
       </div>
@@ -63,23 +63,23 @@ export default function MemoryHealth({ conn }) {
         {/* Left: Committed vs Target */}
         <div className="flex flex-col justify-center gap-2">
           <div className="flex items-end justify-between">
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
               Committed vs Target
             </span>
             <span className="font-bold tabular-nums leading-none" style={{ fontSize: 24, color: pctColor }}>
               {pct}%
             </span>
           </div>
-          <div style={{ height: 10, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+          <div style={{ height: 10, background: 'var(--divider)', borderRadius: 99, overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 99, width: `${Math.min(pct, 100)}%`, background: pctColor, transition: 'width 0.5s ease, background 0.3s' }} />
           </div>
-          <div className="flex justify-between tabular-nums" style={{ fontSize: 11, color: '#94a3b8' }}>
+          <div className="flex justify-between tabular-nums" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             <span>{committed.toFixed(1)} GB committed</span>
             <span>{target.toFixed(1)} GB target</span>
           </div>
         </div>
         {/* Right: PLE, Buffer Cache, Grants */}
-        <div className="flex flex-col justify-center gap-3 pl-5" style={{ borderLeft: '1px solid #f1f5f9' }}>
+        <div className="flex flex-col justify-center gap-3 pl-5" style={{ borderLeft: '1px solid var(--divider)' }}>
           <HealthBar label="Page Life Expectancy" displayVal={pleLbl} badgeText={pleBadge} color={pleColor} pct={plePct} />
           <HealthBar label="Buffer Cache Hit Ratio" displayVal={buf.toFixed(1) + '%'} badgeText={bufBadge} color={bufColor} pct={Math.min(buf, 100)} />
           <HealthBar label="Memory Grants Pending" displayVal={String(grants)} badgeText={grantBadge} color={grantColor} pct={grantPct} />

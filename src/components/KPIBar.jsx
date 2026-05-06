@@ -10,7 +10,7 @@ function KPICard({ id, label, value, baseColor, statusKey, statusVal, onClick })
       onClick={onClick}
       style={{ padding: '16px 18px', borderLeft: `3px solid ${color}`, cursor: 'pointer' }}
     >
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
         {label}
       </div>
       <div className="font-bold tabular-nums leading-none" style={{ fontSize: 24, color }}>

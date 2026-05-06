@@ -108,7 +108,7 @@ export default function Dashboard({ connId }) {
         <span className="w-2.5 h-2.5 rounded-full dot-live flex-shrink-0" />
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--body-text)' }}>{conn.label}</span>
         <span className="text-xs text-slate-400 font-mono">{conn.server}</span>
-        <span className="ml-auto text-xs font-semibold tabular-nums transition-colors" style={{ fontSize: 11, color: lastUpdated === 'Live' ? '#22c55e' : '#94a3b8' }}>
+        <span className="ml-auto text-xs font-semibold tabular-nums transition-colors" style={{ fontSize: 11, color: lastUpdated === 'Live' ? '#22c55e' : 'var(--text-muted)' }}>
           {lastUpdated}
         </span>
       </div>

@@ -134,7 +134,7 @@ function GroupRow({ group, isOpen, onToggle }) {
         {group.count}
       </span>
       <span className="text-[10px] text-slate-400 flex-shrink-0">{cpuFmt}</span>
-      <span style={{ fontSize: 9, color: '#94a3b8', flexShrink: 0 }}>{isOpen ? '▴' : '▾'}</span>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', flexShrink: 0 }}>{isOpen ? '▴' : '▾'}</span>
     </div>
   )
 }
@@ -150,25 +150,25 @@ function SessionRow({ session: s, onKill }) {
   const sElap = s.elapsed_sec ? (s.elapsed_sec >= 60 ? Math.round(s.elapsed_sec / 60) + 'm' : s.elapsed_sec + 's') : '—'
 
   return (
-    <div style={{ background: '#f8fafc', borderLeft: `3px solid ${stColor}`, margin: '2px 0', padding: '5px 10px', fontSize: 10 }}>
+    <div style={{ background: 'var(--card-bg)', borderLeft: `3px solid ${stColor}`, margin: '2px 0', padding: '5px 10px', fontSize: 10 }}>
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>SPID {s.session_id}</span>
+        <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>SPID {s.session_id}</span>
         <span style={{ color: stColor, fontWeight: 600, textTransform: 'capitalize' }}>{s.status}</span>
         {s.blocking_session_id > 0 && (
           <span style={{ color: '#dc2626', fontSize: 10, fontWeight: 700 }} title={`Blocked by SPID ${s.blocking_session_id}`}>⊘ BLK</span>
         )}
         {s.wait_type && (
-          <span style={{ fontSize: 9, color: '#64748b', background: '#f1f5f9', borderRadius: 3, padding: '1px 4px' }}>{s.wait_type}</span>
+          <span style={{ fontSize: 9, color: 'var(--text-secondary)', background: 'var(--divider)', borderRadius: 3, padding: '1px 4px' }}>{s.wait_type}</span>
         )}
-        <span className="ml-auto" style={{ color: '#475569' }}>CPU {sCpu}</span>
-        <span style={{ color: '#94a3b8' }}>/ {sElap}</span>
+        <span className="ml-auto" style={{ color: 'var(--text-secondary)' }}>CPU {sCpu}</span>
+        <span style={{ color: 'var(--text-muted)' }}>/ {sElap}</span>
         {stLow === 'sleeping' && (
           <button className="kill-btn" onClick={(e) => { e.stopPropagation(); onKill() }}>Kill</button>
         )}
       </div>
       {q && (
         <div
-          style={{ color: '#64748b', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 9 }}
+          style={{ color: 'var(--text-secondary)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 9 }}
           title={s.last_query || ''}
         >
           {q}

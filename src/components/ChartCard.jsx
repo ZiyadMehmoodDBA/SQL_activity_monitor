@@ -45,7 +45,7 @@ export default function ChartCard({ title, subtitle, value, unit, history, color
       ...(yMax ? { max: yMax } : {}),
       opposite: true,
       labels: {
-        style: { colors: '#94a3b8', fontSize: '10px' },
+        style: { colors: 'var(--text-muted)', fontSize: '10px' },
         formatter: (v) => v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(Math.round(v)),
       },
       tickAmount: 4,
@@ -80,7 +80,7 @@ export default function ChartCard({ title, subtitle, value, unit, history, color
 
   return (
     <div className="mc flex flex-col" style={{ padding: '20px 20px 16px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>
         {title}
       </div>
       <div className="flex items-end justify-between mb-4">
@@ -91,7 +91,7 @@ export default function ChartCard({ title, subtitle, value, unit, history, color
           {value !== null && value !== undefined ? value : '--'}
           {unit && <span style={{ fontSize: 18, marginLeft: 4 }}>{unit}</span>}
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right', lineHeight: 1.4, maxWidth: 110 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', lineHeight: 1.4, maxWidth: 110 }}>
           {subtitle}
         </div>
       </div>
