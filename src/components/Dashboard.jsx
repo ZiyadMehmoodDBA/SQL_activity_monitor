@@ -10,6 +10,7 @@ import MemoryHealth from './MemoryHealth'
 import CollapsibleSection from './CollapsibleSection'
 import VirtualTable from './VirtualTable'
 import DbSizes from './DbSizes'
+import WhoIsActive from './WhoIsActive'
 
 function useTimeSince(ts) {
   const [display, setDisplay] = useState('Waiting…')
@@ -275,6 +276,9 @@ export default function Dashboard({ connId }) {
             onSort={col => handleSort('active', col)}
           />
         </CollapsibleSection>
+
+        {/* sp_WhoIsActive */}
+        <WhoIsActive connId={connId} />
 
         {/* Blocking Chains */}
         <CollapsibleSection

@@ -176,3 +176,55 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
 /* Tab labels */
 [data-theme="dark"] .tab .tab-label { color: #94a3b8; }
 [data-theme="dark"] .tab.active .tab-label { color: #e2e8f0; }
+
+/* ── sp_WhoIsActive panel ─────────────────────────────────────────────── */
+.wia-th {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--divider);
+  background: var(--divider);
+  color: var(--text-muted);
+}
+.wia-td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--divider);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.wia-row:hover .wia-td { background: var(--row-hover); }
+.wia-row-blocked .wia-td {
+  background: rgba(220,38,38,.06);
+  border-left: 3px solid #dc2626;
+}
+.wia-row-blocked .wia-td:not(:first-child) { border-left: none; }
+.wia-row-long .wia-td { background: rgba(234,88,12,.05); }
+.wia-expand-row .wia-expand-td {
+  padding: 12px 16px 12px 40px;
+  background: var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+.wia-code {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}
+[data-theme="dark"] .wia-th { background: #1c2128; color: #6e7681; border-color: #30363d; }
+[data-theme="dark"] .wia-td { border-color: #21262d; }
+[data-theme="dark"] .wia-row-blocked .wia-td { background: rgba(220,38,38,.12); }
+[data-theme="dark"] .wia-expand-row .wia-expand-td { background: #1c2128; border-color: #30363d; }
