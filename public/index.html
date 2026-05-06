@@ -1,0 +1,2333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SQL Activity Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      /* ── Enterprise Clean (default) ── */
+      --body-bg:#f0f4f8; --header-bg:#0f172a;
+      --header-icon:#60a5fa; --header-server:#93c5fd;
+      --header-status-txt:#94a3b8; --header-ts:#64748b;
+      --badge-bg:#eff6ff; --badge-text:#1d4ed8;
+      --section-hover:#f8fafc; --row-hover:rgba(59,130,246,.04);
+      --sort-active:#3b82f6;
+      --scroll-track:#e8edf2; --scroll-thumb:#cbd5e1; --scroll-thumb-h:#94a3b8;
+      --val-cpu:#3b82f6; --val-wait:#f59e0b; --val-io:#10b981; --val-batch:#8b5cf6;
+      --status-run-bg:#dcfce7; --status-run-txt:#166534;
+      --status-susp-bg:#fef9c3; --status-susp-txt:#854d0e;
+      --status-sleep-bg:#f1f5f9; --status-sleep-txt:#475569;
+      --status-bgnd-bg:#e0f2fe; --status-bgnd-txt:#0c4a6e;
+      --dot-live:#22c55e; --dot-dead:#ef4444; --dot-warn:#f59e0b; --dot-idle:#94a3b8;
+      --card-border:#e2e8f0; --card-radius:14px;
+      --c-ok:#16a34a; --c-warn:#ea580c; --c-crit:#dc2626; --c-info:#475569;
+      --card-bg:#fff; --body-text:#1e293b; --tab-active-bg:#fff; --divider:#f1f5f9;
+      --card-shadow:0 2px 8px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.04);
+    }
+    body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--body-bg); color:var(--body-text); }
+
+    /* ── Tabs ── */
+    #tab-bar { background:var(--body-bg); border-bottom:1px solid rgba(0,0,0,.07); padding:4px 16px 0; display:flex; align-items:flex-end; gap:2px; overflow-x:auto; min-height:36px; }
+    #tab-bar::-webkit-scrollbar { height:3px; }
+    .tab { display:flex; align-items:center; gap:5px; padding:5px 10px 7px; border-radius:7px 7px 0 0; cursor:pointer; transition:background .15s; white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; }
+    .tab:hover { background:rgba(255,255,255,.7); }
+    .tab.active { background:var(--tab-active-bg); border-bottom-color:var(--sort-active); }
+    .tab .tab-label { font-size:12px; font-weight:500; color:#475569; }
+    .tab.active .tab-label { color:#1e293b; font-weight:600; }
+    .tab .close-btn { opacity:0; font-size:13px; line-height:1; padding:1px 3px; border-radius:3px; }
+    .tab:hover .close-btn { opacity:.4; }
+    .tab .close-btn:hover { opacity:1!important; color:#dc2626; background:rgba(220,38,38,.1); }
+    #add-conn-btn { display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; color:#64748b; font-size:18px; cursor:pointer; transition:background .15s; margin-bottom:4px; flex-shrink:0; }
+    #add-conn-btn:hover { background:var(--section-hover); color:var(--sort-active); }
+
+    /* ── Connect Modal ── */
+    #connect-modal { position:fixed; inset:0; background:rgba(0,0,0,.5); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+    #connect-modal.hidden { display:none; }
+    #connect-card { background:#fff; border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.18); width:100%; max-width:440px; overflow:hidden; }
+    .modal-header { padding:24px 24px 16px; border-bottom:1px solid #f1f5f9; }
+    .modal-body { padding:20px 24px 24px; }
+    .field-label { display:block; font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:.06em; margin-bottom:5px; }
+    .field-input { width:100%; padding:9px 12px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:13px; color:#1e293b; transition:border .15s, box-shadow .15s; background:#fff; }
+    .field-input:focus { outline:none; border-color:var(--sort-active); box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+    .auth-pill { display:flex; background:#f1f5f9; border-radius:8px; padding:3px; gap:2px; }
+    .auth-btn { flex:1; padding:7px 12px; font-size:12px; font-weight:500; border-radius:6px; cursor:pointer; transition:all .15s; color:#64748b; }
+    .auth-btn.active { background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.1); color:var(--sort-active); font-weight:600; }
+    .connect-btn { width:100%; padding:11px; background:var(--header-bg); color:#fff; font-size:14px; font-weight:600; border-radius:9px; cursor:pointer; transition:opacity .15s; }
+    .connect-btn:hover { opacity:.85; }
+    .connect-btn:disabled { opacity:.5; cursor:not-allowed; }
+    .error-box { background:#fef2f2; border:1px solid #fecaca; color:#dc2626; border-radius:8px; padding:10px 12px; font-size:13px; }
+    .section-divider { border-top:1px solid #f1f5f9; padding-top:14px; margin-top:4px; }
+    .section-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin-bottom:10px; }
+    .color-swatch { width:22px; height:22px; border-radius:50%; cursor:pointer; border:2.5px solid transparent; transition:transform .15s,border-color .15s; flex-shrink:0; outline:none; }
+    .color-swatch:hover { transform:scale(1.2); }
+    .color-swatch.selected { border-color:#1e293b!important; transform:scale(1.1); }
+    .color-swatch.custom-color { background:conic-gradient(red 0deg,#ff0 60deg,lime 120deg,cyan 180deg,blue 240deg,magenta 300deg,red 360deg); position:relative; overflow:hidden; }
+    .intent-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:99px; background:#dbeafe; color:#1e40af; }
+    .intent-badge.ro { background:#fce7f3; color:#9d174d; }
+
+    /* ── Metric cards ── */
+    .mc { background:var(--card-bg); border-radius:var(--card-radius); border:none; box-shadow:var(--card-shadow); transition:box-shadow .2s,transform .15s; }
+    .mc:hover { box-shadow:0 6px 20px rgba(0,0,0,.1),0 0 0 1px rgba(0,0,0,.05); transform:translateY(-1px); }
+    .mc-click { cursor:pointer; }
+
+    /* ── Dashboard sections ── */
+    .section-body { transition:max-height .28s ease, opacity .22s ease; overflow:hidden; max-height:2000px; opacity:1; }
+    .section-body.collapsed { max-height:0; opacity:0; }
+    .chevron { transition:transform .25s ease; }
+    .chevron.open { transform:rotate(180deg); }
+    .section-toggle { border-bottom:1px solid var(--divider); }
+    .section-toggle:hover { background:var(--section-hover); }
+    th.sortable { cursor:pointer; user-select:none; }
+    th.sortable:hover { background:#f8fafc; }
+    .sort-icon { opacity:.35; font-size:10px; margin-left:2px; }
+    th.sort-active .sort-icon { opacity:1; color:var(--sort-active); }
+    td.query-cell { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help; }
+    td.trunc-cell { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    tbody tr.dr:hover { background:var(--row-hover)!important; }
+    tbody tr.dr-odd { background:rgba(0,0,0,.012); }
+
+    /* ── Status badges ── */
+    .status-running    { background:var(--status-run-bg);   color:var(--status-run-txt);   }
+    .status-suspended  { background:var(--status-susp-bg);  color:var(--status-susp-txt);  }
+    .status-sleeping   { background:var(--status-sleep-bg); color:var(--status-sleep-txt); }
+    .status-background { background:var(--status-bgnd-bg);  color:var(--status-bgnd-txt);  }
+    .status-other      { background:var(--status-sleep-bg); color:var(--status-sleep-txt); }
+
+    /* ── Dots ── */
+    .dot-live { background:var(--dot-live)!important; }
+    .dot-dead { background:var(--dot-dead)!important; }
+    .dot-warn { background:var(--dot-warn)!important; }
+    .dot-idle { background:var(--dot-idle)!important; }
+
+    /* ── Charts ── */
+    .chart-wrap { position:relative; height:224px; min-height:224px; }
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { height:5px; width:5px; }
+    ::-webkit-scrollbar-track { background:var(--scroll-track); }
+    ::-webkit-scrollbar-thumb { background:var(--scroll-thumb); border-radius:3px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--scroll-thumb-h); }
+
+    /* ── Misc ── */
+    #palette-btn:hover { background:rgba(255,255,255,.12); }
+    #palette-menu { min-width:190px; }
+    .modal-tab { border-color:transparent; color:#64748b; }
+    .modal-tab:hover { color:#1e293b; }
+    .modal-tab.active { border-color:var(--sort-active); color:var(--sort-active); font-weight:600; }
+    .cs-action-btn { padding:5px 13px; font-size:12px; font-weight:600; border-radius:7px; border:1.5px solid #e2e8f0; background:#f8fafc; color:#475569; cursor:pointer; transition:all .15s; }
+    .cs-action-btn:hover { background:#e2e8f0; color:#1e293b; }
+    .kill-btn { padding:2px 7px; font-size:10px; font-weight:600; border-radius:4px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; cursor:pointer; white-space:nowrap; transition:all .1s; }
+    .kill-btn:hover { background:#dc2626; color:#fff; }
+    .db-bar-track { height:6px; border-radius:3px; background:#f1f5f9; overflow:hidden; }
+    .db-bar-fill { height:100%; border-radius:3px; transition:width .4s ease; }
+    .db-bar-fill.bar-ok   { background:#22c55e; }
+    .db-bar-fill.bar-warn { background:#f59e0b; }
+    .db-bar-fill.bar-crit { background:#ef4444; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ── HEADER ──────────────────────────────────────────────────────────────── -->
+<header class="text-white px-5 py-2.5 flex items-center justify-between sticky top-0 z-50" style="background:var(--header-bg);box-shadow:0 1px 0 rgba(255,255,255,.06),0 2px 12px rgba(0,0,0,.25);">
+  <div class="flex items-center gap-3">
+    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 flex-shrink-0" style="color:var(--header-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h16"/>
+    </svg>
+    <span class="font-bold text-xl tracking-tight">SQL Activity Monitor</span>
+  </div>
+  <div class="flex items-center gap-4 text-sm">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full dot-idle" id="statusDot"></span>
+      <span style="color:var(--header-status-txt);" id="statusText">Offline</span>
+    </div>
+    <!-- Palette -->
+    <div class="relative flex-shrink-0">
+      <button id="palette-btn" onclick="togglePaletteMenu(event)"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium"
+              style="color:var(--header-icon);">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+        </svg>
+        <span id="palette-name-display">Mossy Hollow</span>
+        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div id="palette-menu" class="hidden absolute right-0 top-9 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1"></div>
+    </div>
+  </div>
+</header>
+
+<!-- ── TAB BAR ─────────────────────────────────────────────────────────────── -->
+<div id="tab-bar" class="hidden">
+  <button id="add-conn-btn" onclick="showConnectModal()" title="New connection">+</button>
+</div>
+
+<!-- ── MAIN ────────────────────────────────────────────────────────────────── -->
+<main id="dashboard-container" class="p-6 space-y-0" style="max-width:1920px;margin:0 auto;">
+  <!-- Empty state -->
+  <div id="empty-state" class="flex flex-col items-center justify-center py-32 text-center">
+    <svg class="w-16 h-16 text-slate-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7h16M4 12h16M4 17h16"/>
+    </svg>
+    <h2 class="text-xl font-semibold text-slate-500 mb-2">No Active Connections</h2>
+    <p class="text-slate-400 text-sm mb-6">Connect to a SQL Server instance to start monitoring</p>
+    <button onclick="showConnectModal()"
+            class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
+            style="background:var(--header-bg);">
+      + New Connection
+    </button>
+  </div>
+</main>
+
+<!-- ── CONNECT MODAL ───────────────────────────────────────────────────────── -->
+<div id="connect-modal" class="hidden">
+  <div id="connect-card">
+    <div class="modal-header">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:var(--header-bg);">
+          <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h16"/>
+          </svg>
+        </div>
+        <div>
+          <div class="font-bold text-slate-800 text-base">Connect to SQL Server</div>
+          <div class="text-slate-400 text-xs">Add a new monitored instance</div>
+        </div>
+        <button id="modal-close-btn" onclick="hideConnectModal()"
+                class="ml-auto text-slate-400 hover:text-slate-600 text-xl leading-none px-1">×</button>
+      </div>
+      <!-- Modal tabs -->
+      <div class="flex gap-0 border-b border-slate-200 -mx-1">
+        <button type="button" id="mtab-login" onclick="switchModalTab('login')"
+                class="modal-tab active px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">Login</button>
+        <button type="button" id="mtab-connstr" onclick="switchModalTab('connstr')"
+                class="modal-tab px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">Connection String</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <form id="connect-form" onsubmit="handleConnect(event)" autocomplete="off">
+
+        <!-- ── Login tab ── -->
+        <div id="mtab-login-body">
+        <div class="space-y-4">
+
+          <div>
+            <label class="field-label">Server</label>
+            <input id="f-server" name="server" class="field-input" placeholder="SERVER\INSTANCE  or  SERVER,PORT" />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="field-label">Label <span class="normal-case font-normal text-slate-400">(optional)</span></label>
+              <input id="f-label" name="label" class="field-input" placeholder="e.g. Production" />
+            </div>
+            <div>
+              <label class="field-label">Database</label>
+              <input id="f-db" name="database" class="field-input" placeholder="master" />
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label">Authentication</label>
+            <div class="auth-pill">
+              <button type="button" id="auth-windows" class="auth-btn active" onclick="setAuthType('windows')">Windows Auth</button>
+              <button type="button" id="auth-sql"     class="auth-btn"        onclick="setAuthType('sql')">SQL Auth</button>
+            </div>
+          </div>
+
+          <div id="sql-auth-fields" class="hidden space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="field-label">Username</label>
+                <input id="f-user" name="user" class="field-input" autocomplete="username" placeholder="sa"/>
+              </div>
+              <div>
+                <label class="field-label">Password</label>
+                <input id="f-pass" name="password" type="password" class="field-input" autocomplete="current-password" placeholder="••••••••"/>
+              </div>
+            </div>
+          </div>
+
+          <!-- Security & appearance -->
+          <div class="section-divider">
+            <p class="section-label">Security</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="field-label">Encryption</label>
+                <select id="f-encrypt" class="field-input" style="cursor:pointer;" onchange="onEncryptChange(this.value)">
+                  <option value="false" selected>Optional</option>
+                  <option value="true">Mandatory</option>
+                  <option value="strict">Strict (SQL Server 2022 and Azure SQL)</option>
+                </select>
+              </div>
+              <div class="flex flex-col justify-end pb-2">
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" id="f-trust-cert" checked class="w-4 h-4 rounded"/>
+                  <span class="text-sm text-slate-600">Trust Server Certificate</span>
+                </label>
+              </div>
+            </div>
+            <div id="f-hostname-row" class="hidden mt-3">
+              <label class="field-label">Host Name in Certificate</label>
+              <input id="f-hostname" class="field-input" placeholder="e.g. *.contoso.com"/>
+            </div>
+            <div class="mt-3">
+              <label class="field-label">Application Intent</label>
+              <div class="auth-pill">
+                <button type="button" id="intent-rw" class="auth-btn active" onclick="setAppIntent('ReadWrite')">ReadWrite</button>
+                <button type="button" id="intent-ro" class="auth-btn"        onclick="setAppIntent('ReadOnly')">ReadOnly</button>
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="field-label">Tab Color</label>
+              <div class="flex items-center gap-2 flex-wrap" id="color-swatches"></div>
+            </div>
+          </div>
+
+          <div id="connect-error" class="hidden error-box"></div>
+
+          <button type="submit" id="connect-btn" class="connect-btn">Connect</button>
+
+        </div>
+        </div><!-- end mtab-login-body -->
+
+        <!-- ── Connection String tab ── -->
+        <div id="mtab-connstr-body" class="hidden space-y-3">
+          <p class="text-xs text-slate-400">Note: Only ADO.NET connection strings are supported.</p>
+          <textarea id="cs-display" rows="6"
+                    class="field-input resize-none font-mono text-[11px] leading-relaxed"
+                    placeholder="Fill in the Login tab to generate…"
+                    oninput="csEdited=true"></textarea>
+          <div class="flex gap-2">
+            <button type="button" class="cs-action-btn" onclick="copyConnStr()">Copy</button>
+            <button type="button" class="cs-action-btn" onclick="pasteConnStr()">Paste</button>
+            <button type="button" class="cs-action-btn" onclick="applyConnStr()">Apply</button>
+            <button type="button" class="cs-action-btn ml-auto" onclick="resetConnStr()">Reset</button>
+          </div>
+          <button type="button" class="connect-btn" onclick="applyConnStr();switchModalTab('login');document.getElementById('connect-btn').click()">Connect</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Palettes ─────────────────────────────────────────────────────────────────
+const PALETTES = {
+  'Enterprise':     { bodyBg:'#f0f4f8',headerBg:'#0f172a',headerIcon:'#60a5fa',headerServer:'#93c5fd',headerStatusTxt:'#94a3b8',headerTs:'#64748b',badgeBg:'#eff6ff',badgeText:'#1d4ed8',sectionHover:'#f8fafc',rowHover:'rgba(59,130,246,.04)',sortActive:'#3b82f6',scrollTrack:'#e8edf2',scrollThumb:'#cbd5e1',scrollThumbH:'#94a3b8',valCpu:'#3b82f6',valWait:'#f59e0b',valIo:'#10b981',valBatch:'#8b5cf6',chartCpu:'#3b82f6',chartWait:'#f59e0b',chartIo:'#10b981',chartBatch:'#8b5cf6',statusRunBg:'#dcfce7',statusRunTxt:'#166534',statusSuspBg:'#fef9c3',statusSuspTxt:'#854d0e',statusSleepBg:'#f1f5f9',statusSleepTxt:'#475569',statusBgndBg:'#e0f2fe',statusBgndTxt:'#0c4a6e',dotLive:'#22c55e',swatch:'#3b82f6',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Mossy Hollow':   { bodyBg:'#f0ede3',headerBg:'#2e3d1f',headerIcon:'#a8bc88',headerServer:'#a8bc88',headerStatusTxt:'#c9d6b0',headerTs:'#8fa870',badgeBg:'#e4ead3',badgeText:'#3a4a26',sectionHover:'#eaeddc',rowHover:'rgba(234,237,220,.55)',sortActive:'#5c7040',scrollTrack:'#f0ede3',scrollThumb:'#c4bc9a',scrollThumbH:'#a89e7a',valCpu:'#5c7040',valWait:'#4d7a6a',valIo:'#b8863d',valBatch:'#7a6e42',chartCpu:'#6b8c4a',chartWait:'#4d7a6a',chartIo:'#b8863d',chartBatch:'#8a7a3a',statusRunBg:'#d4ead0',statusRunTxt:'#2a5220',statusSuspBg:'#f5e6c0',statusSuspTxt:'#7a5010',statusSleepBg:'#ece9e0',statusSleepTxt:'#5c5848',statusBgndBg:'#d8e4d0',statusBgndTxt:'#2a4020',dotLive:'#7aad5a',swatch:'#6b8c4a',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Golden Taupe':   { bodyBg:'#f6f1e8',headerBg:'#5c4a2a',headerIcon:'#f0cc80',headerServer:'#f0cc80',headerStatusTxt:'#f5dea0',headerTs:'#d4aa50',badgeBg:'#f0e8d0',badgeText:'#5c3c18',sectionHover:'#ede4cc',rowHover:'rgba(237,228,204,.55)',sortActive:'#c99030',scrollTrack:'#f6f1e8',scrollThumb:'#d4aa60',scrollThumbH:'#b88840',valCpu:'#c99030',valWait:'#8a7050',valIo:'#e0a030',valBatch:'#a08060',chartCpu:'#c99030',chartWait:'#8a7050',chartIo:'#e0a030',chartBatch:'#a08060',statusRunBg:'#e0f0d0',statusRunTxt:'#305020',statusSuspBg:'#fce8c0',statusSuspTxt:'#7a4010',statusSleepBg:'#f0e8d8',statusSleepTxt:'#6a5840',statusBgndBg:'#e0d8c8',statusBgndTxt:'#4a3820',dotLive:'#b8a030',swatch:'#c99030',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Wisteria Bloom': { bodyBg:'#f3eef8',headerBg:'#4a3a6a',headerIcon:'#d4b8f8',headerServer:'#d4b8f8',headerStatusTxt:'#e8d8fc',headerTs:'#c0a0e8',badgeBg:'#ede0f8',badgeText:'#4a2a6a',sectionHover:'#e8daf5',rowHover:'rgba(232,218,245,.55)',sortActive:'#9b7ec8',scrollTrack:'#f3eef8',scrollThumb:'#c0a8e0',scrollThumbH:'#9070c0',valCpu:'#9b7ec8',valWait:'#c87eb8',valIo:'#6ab0a0',valBatch:'#b89b7e',chartCpu:'#9b7ec8',chartWait:'#c87eb8',chartIo:'#6ab0a0',chartBatch:'#b89b7e',statusRunBg:'#d8f0e8',statusRunTxt:'#1a5a38',statusSuspBg:'#f8e0f0',statusSuspTxt:'#6a1a50',statusSleepBg:'#eee8f5',statusSleepTxt:'#504070',statusBgndBg:'#dcd0f0',statusBgndTxt:'#3a2860',dotLive:'#7ec8a8',swatch:'#9b7ec8',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Burnt Sienna':   { bodyBg:'#faf0eb',headerBg:'#5c2a1a',headerIcon:'#f0b090',headerServer:'#f0b090',headerStatusTxt:'#f8d0b0',headerTs:'#e08860',badgeBg:'#fce4d8',badgeText:'#5c2010',sectionHover:'#f8ddd0',rowHover:'rgba(248,221,208,.55)',sortActive:'#c85a30',scrollTrack:'#faf0eb',scrollThumb:'#e8a880',scrollThumbH:'#d07858',valCpu:'#c85a30',valWait:'#e88a50',valIo:'#8a5040',valBatch:'#c8a070',chartCpu:'#c85a30',chartWait:'#e88a50',chartIo:'#8a5040',chartBatch:'#c8a070',statusRunBg:'#d8f0d0',statusRunTxt:'#1a4a18',statusSuspBg:'#fce8c0',statusSuspTxt:'#7a3010',statusSleepBg:'#f5ede8',statusSleepTxt:'#6a4838',statusBgndBg:'#f0d8d0',statusBgndTxt:'#5a2820',dotLive:'#a8c870',swatch:'#c85a30',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Desert Dusk':    { bodyBg:'#f5f0ec',headerBg:'#3a2a4a',headerIcon:'#e0b898',headerServer:'#e0b898',headerStatusTxt:'#f0d0b8',headerTs:'#c8a080',badgeBg:'#f0e4d8',badgeText:'#4a2a18',sectionHover:'#ece0d4',rowHover:'rgba(236,224,212,.55)',sortActive:'#c8906a',scrollTrack:'#f5f0ec',scrollThumb:'#d4b898',scrollThumbH:'#b89070',valCpu:'#c8906a',valWait:'#a07890',valIo:'#e8b880',valBatch:'#6a8090',chartCpu:'#c8906a',chartWait:'#a07890',chartIo:'#e8b880',chartBatch:'#6a8090',statusRunBg:'#d8ead8',statusRunTxt:'#1e4818',statusSuspBg:'#f8e8d0',statusSuspTxt:'#6a3810',statusSleepBg:'#ede8e0',statusSleepTxt:'#585048',statusBgndBg:'#ddd0e0',statusBgndTxt:'#3a2848',dotLive:'#90b878',swatch:'#c8906a',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Wildflowers':    { bodyBg:'#f2f8f0',headerBg:'#2a4a2a',headerIcon:'#b8e890',headerServer:'#b8e890',headerStatusTxt:'#d0f0b0',headerTs:'#88c860',badgeBg:'#d8eed0',badgeText:'#1a4a18',sectionHover:'#e0f0d8',rowHover:'rgba(224,240,216,.55)',sortActive:'#4a80c8',scrollTrack:'#f2f8f0',scrollThumb:'#a8d888',scrollThumbH:'#78b858',valCpu:'#e05a30',valWait:'#4a80c8',valIo:'#d8a820',valBatch:'#6ab040',chartCpu:'#e05a30',chartWait:'#4a80c8',chartIo:'#d8a820',chartBatch:'#6ab040',statusRunBg:'#c8f0c0',statusRunTxt:'#186018',statusSuspBg:'#f8f0c0',statusSuspTxt:'#706010',statusSleepBg:'#e8f0e0',statusSleepTxt:'#405838',statusBgndBg:'#c8e8f8',statusBgndTxt:'#184868',dotLive:'#5ab840',swatch:'#6ab040',cardBg:'#fff',bodyText:'#1e293b',tabActiveBg:'#fff',divider:'#f1f5f9' },
+  'Dark':           { bodyBg:'#0d1117',headerBg:'#010409',headerIcon:'#58a6ff',headerServer:'#79c0ff',headerStatusTxt:'#8b949e',headerTs:'#6e7681',badgeBg:'#1f2937',badgeText:'#79c0ff',sectionHover:'#1c2128',rowHover:'rgba(255,255,255,.04)',sortActive:'#58a6ff',scrollTrack:'#21262d',scrollThumb:'#30363d',scrollThumbH:'#484f58',valCpu:'#58a6ff',valWait:'#e3b341',valIo:'#3fb950',valBatch:'#d2a8ff',chartCpu:'#58a6ff',chartWait:'#e3b341',chartIo:'#3fb950',chartBatch:'#d2a8ff',statusRunBg:'#0d2a1a',statusRunTxt:'#3fb950',statusSuspBg:'#2a1f00',statusSuspTxt:'#e3b341',statusSleepBg:'#1c2128',statusSleepTxt:'#8b949e',statusBgndBg:'#0c2035',statusBgndTxt:'#58a6ff',dotLive:'#3fb950',swatch:'#58a6ff',cardBg:'#161b22',bodyText:'#c9d1d9',tabActiveBg:'#161b22',divider:'#21262d',cardBorder:'#30363d',cardShadow:'0 2px 8px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.06)' },
+};
+
+const CSS_VAR_MAP = {
+  bodyBg:'--body-bg',headerBg:'--header-bg',headerIcon:'--header-icon',headerServer:'--header-server',
+  headerStatusTxt:'--header-status-txt',headerTs:'--header-ts',
+  badgeBg:'--badge-bg',badgeText:'--badge-text',
+  sectionHover:'--section-hover',rowHover:'--row-hover',sortActive:'--sort-active',
+  scrollTrack:'--scroll-track',scrollThumb:'--scroll-thumb',scrollThumbH:'--scroll-thumb-h',
+  valCpu:'--val-cpu',valWait:'--val-wait',valIo:'--val-io',valBatch:'--val-batch',
+  statusRunBg:'--status-run-bg',statusRunTxt:'--status-run-txt',
+  statusSuspBg:'--status-susp-bg',statusSuspTxt:'--status-susp-txt',
+  statusSleepBg:'--status-sleep-bg',statusSleepTxt:'--status-sleep-txt',
+  statusBgndBg:'--status-bgnd-bg',statusBgndTxt:'--status-bgnd-txt',
+  dotLive:'--dot-live',
+  cardBg:'--card-bg',bodyText:'--body-text',tabActiveBg:'--tab-active-bg',divider:'--divider',
+  cardBorder:'--card-border',cardShadow:'--card-shadow',
+};
+
+let currentPalette = localStorage.getItem('palette') || 'Enterprise';
+
+function applyPalette(name) {
+  const p = PALETTES[name]; if (!p) return;
+  const rs = document.documentElement.style;
+  for (const [k, v] of Object.entries(CSS_VAR_MAP)) if (p[k]) rs.setProperty(v, p[k]);
+  // Update all existing charts
+  const pkeys = ['chartCpu','chartWait','chartIo','chartBatch','chartIo','chartCpu'];
+  const ckeys = ['cpu','wait','io','batch','netMb','compilations'];
+  for (const conn of Object.values(conns)) {
+    if (!conn.charts) continue;
+    ckeys.forEach((k,i) => {
+      const chart = conn.charts[k]; if (!chart) return;
+      const col = p[pkeys[i]];
+      chart.data.datasets[0]._baseColor = col;
+      chart.data.datasets[0].borderColor = col;
+      chart.data.datasets[0].pointHoverBackgroundColor = col;
+      chart.update('none');
+    });
+  }
+  currentPalette = name;
+  const el = document.getElementById('palette-name-display');
+  if (el) el.textContent = name;
+  localStorage.setItem('palette', name);
+  renderPaletteMenu();
+}
+
+function renderPaletteMenu() {
+  const menu = document.getElementById('palette-menu');
+  menu.innerHTML = Object.entries(PALETTES).map(([name, p]) => `
+    <button onclick="selectPalette('${name}')"
+            class="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors ${name===currentPalette?'bg-slate-50':''}">
+      <span class="w-3.5 h-3.5 rounded-full flex-shrink-0 ring-2 ${name===currentPalette?'ring-slate-400':'ring-transparent'}"
+            style="background:${p.swatch};"></span>
+      <span class="text-slate-700 ${name===currentPalette?'font-semibold':''}">${name}</span>
+      ${name===currentPalette?'<svg class="ml-auto w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>':''}
+    </button>`).join('');
+}
+
+function togglePaletteMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('palette-menu');
+  menu.classList.toggle('hidden');
+  if (!menu.classList.contains('hidden')) renderPaletteMenu();
+}
+function selectPalette(name) { applyPalette(name); document.getElementById('palette-menu').classList.add('hidden'); }
+document.addEventListener('click', () => document.getElementById('palette-menu')?.classList.add('hidden'));
+
+// ─── Connection state ─────────────────────────────────────────────────────────
+const conns = {}; // id → { label, server, history, charts, tableData, sortState }
+let activeConnId = null;
+
+const HISTORY_LEN = 60;
+
+// ─── Status color system ──────────────────────────────────────────────────────
+const C_OK   = '#16a34a';  // green   — healthy
+const C_WARN = '#ea580c';  // orange  — warning
+const C_CRIT = '#dc2626';  // red     — critical
+// neutral: use element's template color (null = no override)
+
+// Thresholds: { warn, crit, inverse? }
+// inverse=true → lower is worse (e.g. PLE)
+const METRIC_THRESHOLDS = {
+  cpu:      { warn: 70,   crit: 90  },
+  wait:     { warn: 10,   crit: 50  },
+  sqlmem:   { warn: 90,   crit: 98  },   // % committed/target
+  ple:      { warn: 1000, crit: 300, inverse: true },  // <300 = critical
+  bufcache: { warn: 99,   crit: 95,  inverse: true },  // <95 = critical
+  grants:   { warn: 1,    crit: 5   },                 // >0 = pressure
+};
+
+function metricStatusColor(key, val) {
+  const t = METRIC_THRESHOLDS[key];
+  if (!t || val === null || val === undefined || isNaN(val)) return null;
+  if (t.inverse) {
+    if (val < t.crit) return C_CRIT;
+    if (val < t.warn) return C_WARN;
+    return C_OK;   // PLE > 1000 → green
+  } else {
+    if (val >= t.crit) return C_CRIT;
+    if (val >= t.warn) return C_WARN;
+    return null;   // healthy → keep palette color
+  }
+}
+
+// Apply status color to value text + KPI card border + chart line
+function applyMetricStatus(connId, key, val) {
+  const conn  = conns[connId]; if (!conn) return;
+  const color = metricStatusColor(key, val);
+
+  // Value display elements
+  for (const pfx of ['val', 'kpi']) {
+    const el = document.getElementById(`${pfx}-${key}-${connId}`);
+    if (el) el.style.color = color || '';
+  }
+
+  // KPI card border
+  const cardEl = document.getElementById(`kpi-card-${key}-${connId}`);
+  if (cardEl) cardEl.style.borderLeftColor = color || '';
+
+  // Chart line — key mapping: val key → charts key
+  const chartMap = { cpu:'cpu', wait:'wait' };
+  const chartKey = chartMap[key];
+  if (chartKey && conn.charts?.[chartKey]) {
+    const ds = conn.charts[chartKey].data.datasets[0];
+    const target = color || ds._baseColor;
+    if (ds.borderColor !== target) {
+      ds.borderColor = target;
+      ds.pointHoverBackgroundColor = target;
+      conn.charts[chartKey].update('none');
+    }
+  }
+}
+const DEFAULT_SORT = {
+  proc:     { col:'cpu_time',       dir:'desc' },
+  waits:    { col:'wait_time_ms',   dir:'desc' },
+  fileio:   { col:'io_stall',       dir:'desc' },
+  recent:   { col:'avg_elapsed_ms', dir:'desc' },
+  active:   { col:'elapsed_sec',    dir:'desc' },
+  blocking: { col:'wait_time',      dir:'desc' },
+  deadlocks:{ col:'deadlock_time',  dir:'desc' },
+};
+
+function makeChartData() { return { labels:Array(HISTORY_LEN).fill(''), data:Array(HISTORY_LEN).fill(null) }; }
+
+function pushHistory(hist, value) {
+  hist.data.push(value);
+  hist.labels.push('');
+  if (hist.data.length > HISTORY_LEN) { hist.data.shift(); hist.labels.shift(); }
+}
+
+function makeChart(canvasId, color, yMax) {
+  const ctx = document.getElementById(canvasId)?.getContext('2d');
+  if (!ctx) return null;
+
+  // Gradient fill: reads borderColor at render time so palette changes work
+  const gradFill = (context) => {
+    const chart = context.chart;
+    const { ctx: c, chartArea } = chart;
+    const col = chart.data.datasets[0].borderColor;
+    if (!chartArea || !col || typeof col !== 'string') return col ? col + '20' : 'rgba(0,0,0,.08)';
+    const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    g.addColorStop(0,   col + '50');
+    g.addColorStop(0.5, col + '18');
+    g.addColorStop(1,   col + '00');
+    return g;
+  };
+
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(HISTORY_LEN).fill(''),
+      datasets: [{
+        data: Array(HISTORY_LEN).fill(null),
+        _baseColor: color,
+        borderColor: color,
+        backgroundColor: gradFill,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: color,
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+        fill: true,
+        tension: 0.45,
+        spanGaps: false,
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 4, right: 4, bottom: 0, left: 0 } },
+      scales: {
+        x: { display: false },
+        y: {
+          min: 0,
+          ...(yMax ? { max: yMax } : {}),
+          grid: { color: 'rgba(0,0,0,.03)', lineWidth: 0.75, drawBorder: false },
+          border: { display: false, dash: [3, 3] },
+          ticks: {
+            color: '#94a3b8',
+            font: { size: 10, family: "'Segoe UI', system-ui, sans-serif" },
+            maxTicksLimit: 4,
+            padding: 6,
+            callback: (v) => v >= 1000 ? (v/1000).toFixed(v%1000===0?0:1)+'k' : v,
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          backgroundColor: 'rgba(15,23,42,.92)',
+          titleColor: '#94a3b8',
+          bodyColor: '#f1f5f9',
+          borderColor: 'rgba(255,255,255,.1)',
+          borderWidth: 1,
+          padding: { x: 12, y: 10 },
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: (items) => {
+              if (!items.length) return '';
+              const idx   = items[0].dataIndex;
+              const total = items[0].dataset.data.length;
+              const ago   = (total - 1 - idx) * 2;
+              return ago === 0 ? 'Now' : `${ago}s ago`;
+            },
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v === null || v === undefined) return '  No data';
+              const fmt = v >= 1000 ? Math.round(v).toLocaleString()
+                        : v % 1 === 0 ? v.toLocaleString()
+                        : v.toFixed(2);
+              return `  ${fmt}`;
+            },
+            afterLabel: (ctx) => {
+              const data = ctx.dataset.data;
+              const i    = ctx.dataIndex;
+              if (i < 1) return '';
+              const prev = data[i - 1], curr = data[i];
+              if (prev === null || prev === undefined || curr === null) return '';
+              const d = curr - prev;
+              if (d === 0) return '';
+              const abs = Math.abs(d);
+              const fmt = abs >= 1000 ? Math.round(abs).toLocaleString()
+                        : abs % 1 === 0 ? abs.toString()
+                        : abs.toFixed(2);
+              return `  ${d > 0 ? '▲' : '▼'} ${fmt}`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// ─── Dashboard template ───────────────────────────────────────────────────────
+function sectionHtml(connId, sId, title) {
+  return `
+    <div class="mc overflow-hidden">
+      <button class="section-toggle w-full flex items-center justify-between px-5 py-3 text-left"
+              onclick="toggleSection('${connId}','${sId}')">
+        <div class="flex items-center gap-2.5">
+          <svg class="chevron open w-3.5 h-3.5 text-slate-400 flex-shrink-0" id="chev-${sId}-${connId}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+          <span class="text-base font-bold text-slate-700">${title}</span>
+          <span class="text-xs px-2 py-0.5 rounded font-semibold tabular-nums" style="background:var(--badge-bg);color:var(--badge-text);" id="${sId}-count-${connId}">0</span>
+        </div>
+      </button>
+      <div class="section-body" id="body-${sId}-${connId}">
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-slate-700">
+            <thead id="${sId}-thead-${connId}" class="bg-slate-50/80 text-slate-500"></thead>
+            <tbody  id="${sId}-tbody-${connId}"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function dashboardTemplate(id, label, server) {
+  // Chart-metric card builder
+  const cc = (valId, title, sub, valColor, chartId) => `
+    <div class="mc flex flex-col" style="padding:20px 20px 16px;">
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">${title}</div>
+      <div class="flex items-end justify-between mb-4">
+        <div class="font-bold leading-none tabular-nums" style="font-size:38px;color:${valColor};" id="${valId}">--</div>
+        <div style="font-size:11px;color:#94a3b8;text-align:right;line-height:1.4;max-width:110px;">${sub}</div>
+      </div>
+      <div class="chart-wrap flex-1"><canvas id="${chartId}"></canvas></div>
+    </div>`;
+
+  const chartCard = (key, title, sub) =>
+    cc(`val-${key}-${id}`, title, sub, `var(--val-${key})`, `chart-${key}-${id}`);
+
+  // Stat tile — no chart, just a key metric value
+  const statTile = (valId, title, sub, color) => `
+    <div class="mc p-5">
+      <div class="text-[12px] font-semibold text-slate-400 uppercase tracking-wide mb-2">${title}</div>
+      <div class="font-bold tabular-nums leading-none mb-2" style="font-size:32px;color:${color};" id="${valId}">--</div>
+      <div class="text-xs text-slate-400">${sub}</div>
+    </div>`;
+
+  const GEAR_SVG = `<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>`;
+
+  const JTH = 'padding:6px 16px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:1px solid #e2e8f0;background:#f8fafc;position:sticky;top:0;z-index:1;';
+
+  // KPI summary card builder
+  const kpiCard = (kpiId, label, color, onclick) => `
+    <div class="mc mc-click flex flex-col gap-2.5" id="kpi-card-${kpiId}-${id}" onclick="${onclick}"
+         style="padding:16px 18px;border-left:3px solid ${color};">
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">${label}</div>
+      <div class="font-bold tabular-nums leading-none" style="font-size:24px;color:${color};" id="kpi-${kpiId}-${id}">--</div>
+    </div>`;
+
+  return `
+    <!-- Connection header -->
+    <div class="flex items-center gap-3 px-0.5 mb-6 pb-4" style="border-bottom:1px solid rgba(0,0,0,.07);">
+      <span class="w-2.5 h-2.5 rounded-full dot-live flex-shrink-0"></span>
+      <span style="font-size:16px;font-weight:700;color:var(--body-text);">${escapeHtml(label)}</span>
+      <span class="text-xs text-slate-400 font-mono">${escapeHtml(server)}</span>
+      <span class="ml-auto text-xs font-semibold tabular-nums transition-colors" style="font-size:11px;" id="last-updated-${id}"></span>
+    </div>
+
+    <!-- KPI Summary -->
+    <div class="grid grid-cols-6 gap-5 mb-6">
+      ${kpiCard('cpu',     'CPU Usage',      'var(--val-cpu)',   `document.getElementById('chart-cpu-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
+      ${kpiCard('wait',    'Waiting Tasks',  'var(--val-wait)',  `document.getElementById('chart-wait-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
+      ${kpiCard('sessions','Sessions',       'var(--val-batch)', `openAllSessionsDetail('${id}')`)}
+      ${kpiCard('io',      'Database I/O',   'var(--val-io)',    `document.getElementById('chart-io-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
+      ${kpiCard('sqlmem',  'SQL Memory',     'var(--val-wait)',  `document.getElementById('memhealth-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
+      ${kpiCard('ple',     'Page Life Exp.', 'var(--val-batch)', `document.getElementById('memhealth-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
+    </div>
+
+    <!-- Row 1: Core performance charts -->
+    <div class="grid grid-cols-4 gap-6 mb-6">
+      ${chartCard('cpu',   '% Processor Time',  'SQL CPU utilization')}
+      ${chartCard('wait',  'Waiting Tasks',      'Suspended / waiting requests')}
+      ${chartCard('io',    'Database I/O',       'MB/s read + write')}
+      ${chartCard('batch', 'Batch Requests/sec', 'Batches received per second')}
+    </div>
+
+    <!-- Row 2: Network + Compilations charts -->
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      ${cc(`val-netmb-${id}`,        'Network I/O',          'MB/s SQL connections',        'var(--val-io)',    `chart-netmb-${id}`)}
+      ${cc(`val-compilations-${id}`, 'Compilations/sec',     'SQL compilations per second', 'var(--val-cpu)',   `chart-compilations-${id}`)}
+    </div>
+
+    <!-- Row 3: SQL Agent Jobs (8/12) + Connected Sessions (4/12) -->
+    <div class="grid grid-cols-12 gap-6 mb-6">
+      <!-- SQL Agent Jobs -->
+      <div class="col-span-8 mc flex flex-col" style="min-height:280px;">
+        <!-- Header: title + badges + search + view-all -->
+        <div class="flex items-center gap-2 px-5 py-3 border-b border-slate-100 flex-shrink-0">
+          <span style="color:var(--val-batch);">${GEAR_SVG}</span>
+          <span class="text-[12px] font-semibold text-slate-600 uppercase tracking-wide">SQL Agent Jobs</span>
+          <span class="text-xs px-2 py-0.5 rounded font-semibold tabular-nums ml-1" style="background:var(--badge-bg);color:var(--badge-text);" id="val-jobs-total-${id}">--</span>
+          <div class="flex items-center gap-3 text-xs font-medium ml-3 flex-1" id="jobs-badges-${id}"></div>
+          <input type="search" id="jobs-search-${id}" placeholder="Search jobs…"
+                 oninput="onJobsSearch('${id}',this.value)"
+                 style="font-size:11px;border:1.5px solid #e2e8f0;border-radius:7px;padding:4px 10px;width:148px;outline:none;background:#fff;color:#334155;flex-shrink:0;"
+                 onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e2e8f0'" />
+          <button type="button" onclick="openJobsModal('${id}')"
+                  class="text-xs font-semibold px-2.5 py-1 rounded-md border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0">
+            View All
+          </button>
+        </div>
+        <!-- Filter pills -->
+        <div class="flex items-center gap-1.5 px-5 py-2 border-b border-slate-100 flex-shrink-0" id="jobs-filters-${id}"></div>
+        <!-- Table -->
+        <div class="flex-1 overflow-auto" style="min-height:0;">
+          <table class="w-full" style="border-collapse:collapse;font-size:11px;">
+            <thead><tr id="jobs-thead-${id}"></tr></thead>
+            <tbody id="jobs-inline-tbody-${id}">
+              <tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-style:italic;font-size:12px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Connected Sessions -->
+      <div class="col-span-4 mc flex flex-col" style="min-height:280px;">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100 flex-shrink-0">
+          <div class="flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Connected Sessions</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold leading-none tabular-nums" style="font-size:22px;color:#3b82f6;" id="val-sessions-${id}">--</span>
+            <button onclick="openAllSessionsDetail('${id}')" class="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors">View All</button>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto" id="sessions-list-${id}" style="min-height:0;">
+          <span class="text-xs text-slate-400 italic px-5 py-3 block">Waiting…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory Health card -->
+    <div class="mc p-6 mb-6" id="memhealth-${id}">
+      <div class="flex items-center gap-2 mb-4">
+        <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+        <span class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Memory Health</span>
+      </div>
+      <div class="grid gap-6" style="grid-template-columns:2fr 3fr;">
+        <!-- Left: Committed vs Target -->
+        <div class="flex flex-col justify-center gap-2">
+          <div class="flex items-end justify-between">
+            <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Committed vs Target</span>
+            <span class="font-bold tabular-nums leading-none" style="font-size:24px;" id="memh-pct-${id}">--%</span>
+          </div>
+          <div style="height:10px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+            <div id="memh-bar-${id}" style="height:100%;border-radius:99px;width:0%;transition:width 0.5s ease,background 0.3s;background:#3b82f6;"></div>
+          </div>
+          <div class="flex justify-between tabular-nums" style="font-size:11px;color:#94a3b8;">
+            <span id="memh-committed-${id}">-- GB committed</span>
+            <span id="memh-target-${id}">-- GB target</span>
+          </div>
+        </div>
+        <!-- Right: PLE / Buffer Cache / Grants Pending -->
+        <div class="flex flex-col justify-center gap-3 pl-5" style="border-left:1px solid #f1f5f9;">
+          <!-- PLE -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Page Life Expectancy</span>
+              <div class="flex items-center gap-2">
+                <span class="font-bold tabular-nums text-sm" id="memh-ple-val-${id}">--</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-ple-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+              </div>
+            </div>
+            <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+              <div id="memh-ple-bar-${id}" style="height:100%;border-radius:99px;width:0%;transition:width 0.5s ease,background 0.3s;background:#16a34a;"></div>
+            </div>
+          </div>
+          <!-- Buffer Cache Hit Ratio -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Buffer Cache Hit Ratio</span>
+              <div class="flex items-center gap-2">
+                <span class="font-bold tabular-nums text-sm" id="memh-bufcache-val-${id}">--</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-bufcache-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+              </div>
+            </div>
+            <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+              <div id="memh-bufcache-bar-${id}" style="height:100%;border-radius:99px;width:0%;transition:width 0.5s ease,background 0.3s;background:#16a34a;"></div>
+            </div>
+          </div>
+          <!-- Memory Grants Pending -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Memory Grants Pending</span>
+              <div class="flex items-center gap-2">
+                <span class="font-bold tabular-nums text-sm" id="memh-grants-val-${id}">--</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-grants-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+              </div>
+            </div>
+            <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+              <div id="memh-grants-bar-${id}" style="height:100%;border-radius:99px;width:0%;transition:width 0.5s ease,background 0.3s;background:#16a34a;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sections -->
+    <div class="space-y-6">
+      <div class="mc overflow-hidden">
+        <button class="section-toggle w-full flex items-center justify-between px-5 py-3 text-left"
+                onclick="toggleSection('${id}','dbsizes')">
+          <div class="flex items-center gap-2.5">
+            <svg class="chevron open w-3.5 h-3.5 text-slate-400 flex-shrink-0" id="chev-dbsizes-${id}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+            <span class="text-base font-bold text-slate-700">Database Sizes &amp; Disk Usage</span>
+          </div>
+        </button>
+        <div class="section-body" id="body-dbsizes-${id}">
+          <div class="p-5" id="dbsizes-grid-${id}">
+            <span class="text-slate-400 italic text-xs">Loading…</span>
+          </div>
+        </div>
+      </div>
+      <div class="mc overflow-hidden">
+        <button class="section-toggle w-full flex items-center justify-between px-5 py-3 text-left"
+                onclick="toggleSection('${id}','proc')">
+          <div class="flex items-center gap-2.5">
+            <svg class="chevron open w-3.5 h-3.5 text-slate-400 flex-shrink-0" id="chev-proc-${id}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+            <span class="text-base font-bold text-slate-700">Processes</span>
+            <span class="text-xs px-2 py-0.5 rounded font-semibold tabular-nums" style="background:var(--badge-bg);color:var(--badge-text);" id="proc-count-${id}">0</span>
+          </div>
+          <button type="button" id="kill-sleeping-btn-${id}"
+                  class="kill-all-btn text-xs font-semibold px-2.5 py-1 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors"
+                  onclick="event.stopPropagation();killAllSleeping('${id}')">
+            Kill All Sleeping
+          </button>
+        </button>
+        <div class="section-body" id="body-proc-${id}">
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-slate-700">
+              <thead id="proc-thead-${id}" class="bg-slate-50/80 text-slate-500"></thead>
+              <tbody  id="proc-tbody-${id}"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      ${sectionHtml(id,'waits',     'Resource Waits')}
+      ${sectionHtml(id,'fileio',    'Data File I/O')}
+      ${sectionHtml(id,'recent',    'Recent Expensive Queries')}
+      ${sectionHtml(id,'active',    'Active Expensive Queries')}
+      ${sectionHtml(id,'blocking',  'Blocking Chains')}
+      ${sectionHtml(id,'deadlocks', 'Deadlock History')}
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Tab management ───────────────────────────────────────────────────────────
+function addTab(id, label, color) {
+  const tabBar = document.getElementById('tab-bar');
+  const addBtn = document.getElementById('add-conn-btn');
+  const tab    = document.createElement('button');
+  tab.id        = `tab-${id}`;
+  tab.className = 'tab';
+  tab.innerHTML = `
+    <span class="w-2 h-2 rounded-full dot-live flex-shrink-0" style="background:${color||'#3b82f6'}!important;"></span>
+    <span class="tab-label">${escapeHtml(label)}</span>
+    <span class="close-btn" onclick="disconnectConn('${id}',event)" title="Disconnect">✕</span>`;
+  tab.onclick = () => activateTab(id);
+  tabBar.insertBefore(tab, addBtn);
+  tabBar.classList.remove('hidden');
+}
+
+function activateTab(id) {
+  for (const cid of Object.keys(conns)) {
+    document.getElementById(`dash-${cid}`)?.classList.add('hidden');
+    const t = document.getElementById(`tab-${cid}`);
+    if (t) { t.classList.remove('active'); t.style.borderBottomColor = ''; }
+  }
+  document.getElementById(`dash-${id}`)?.classList.remove('hidden');
+  const activeTab = document.getElementById(`tab-${id}`);
+  if (activeTab) {
+    activeTab.classList.add('active');
+    activeTab.style.borderBottomColor = conns[id]?.color || '';
+  }
+  activeConnId = id;
+  // Resize charts after display:block
+  const conn = conns[id];
+  if (conn?.charts) {
+    setTimeout(() => { for (const c of Object.values(conn.charts)) if (c) c.resize(); }, 20);
+  }
+}
+
+// ─── Setup connection UI ──────────────────────────────────────────────────────
+function setupConnectionUI(id, label, server, color, appIntent) {
+  const connColor = color || '#3b82f6';
+  conns[id] = {
+    label, server,
+    color: connColor,
+    appIntent: appIntent || 'ReadWrite',
+    history: { cpu:makeChartData(), wait:makeChartData(), io:makeChartData(), batch:makeChartData(),
+               netMb:makeChartData(), compilations:makeChartData() },
+    charts: null,
+    tableData: { proc:[], waits:[], fileio:[], recent:[], active:[], blocking:[], deadlocks:[], jobs:[] },
+    sortState: JSON.parse(JSON.stringify(DEFAULT_SORT)),
+    jobsSort: { col: null, dir: 'asc' },
+    jobsFilter: 'all',
+    jobsSearch: '',
+    expandedSessionGroups: new Set(),
+  };
+
+  addTab(id, label, connColor);
+
+  const container  = document.getElementById('dashboard-container');
+  document.getElementById('empty-state').classList.add('hidden');
+
+  const div     = document.createElement('div');
+  div.id        = `dash-${id}`;
+  div.className = 'hidden';
+  div.innerHTML = dashboardTemplate(id, label, server);
+  container.appendChild(div);
+  restoreSectionStates(id);
+
+  // Charts must be created after DOM insert
+  const p = PALETTES[currentPalette];
+  conns[id].charts = {
+    cpu:          makeChart(`chart-cpu-${id}`,          p.chartCpu,   100),
+    wait:         makeChart(`chart-wait-${id}`,         p.chartWait,  null),
+    io:           makeChart(`chart-io-${id}`,           p.chartIo,    null),
+    batch:        makeChart(`chart-batch-${id}`,        p.chartBatch, null),
+    netMb:        makeChart(`chart-netmb-${id}`,        p.chartIo,    null),
+    compilations: makeChart(`chart-compilations-${id}`, p.chartCpu,   null),
+  };
+
+  socket.emit('subscribe', id);
+  activateTab(id);
+}
+
+async function disconnectConn(id, e) {
+  e.stopPropagation();
+  const conn = conns[id];
+  if (!conn) return;
+  const ok = await showDialog({ title:'Disconnect', message:`Disconnect from <strong>${escapeHtml(conn.label)}</strong>?`, confirmText:'Disconnect', type:'danger' });
+  if (!ok) return;
+
+  try { await fetch(`/api/disconnect/${id}`, { method:'DELETE' }); } catch {}
+  socket.emit('unsubscribe', id);
+
+  if (conn.charts) for (const c of Object.values(conn.charts)) if (c) c.destroy();
+  document.getElementById(`dash-${id}`)?.remove();
+  document.getElementById(`tab-${id}`)?.remove();
+  delete conns[id];
+
+  const remaining = Object.keys(conns);
+  if (remaining.length > 0) {
+    activateTab(remaining[0]);
+  } else {
+    activeConnId = null;
+    document.getElementById('tab-bar').classList.add('hidden');
+    document.getElementById('empty-state').classList.remove('hidden');
+  }
+}
+
+// ─── Chart updates ────────────────────────────────────────────────────────────
+function updateCharts(connId, m) {
+  const conn = conns[connId];
+  if (!conn?.charts) return;
+  pushHistory(conn.history.cpu,          m.cpu_percent);
+  pushHistory(conn.history.wait,         m.waiting_tasks);
+  pushHistory(conn.history.io,           m.db_io_mb);
+  pushHistory(conn.history.batch,        m.batch_requests);
+  const sp = m.serverPerf || {};
+  pushHistory(conn.history.netMb,        sp.netMbs          || 0);
+  pushHistory(conn.history.compilations, sp.compilationsSec || 0);
+  const ckeys = ['cpu','wait','io','batch','netMb','compilations'];
+  ckeys.forEach(k => {
+    const chart = conn.charts[k]; if (!chart) return;
+    chart.data.datasets[0].data   = [...conn.history[k].data];
+    chart.data.labels              = [...conn.history[k].labels];
+    chart.update('none');
+  });
+  const s = (sel, val) => { const el=document.getElementById(sel); if(el) el.textContent=val; };
+  s(`val-cpu-${connId}`,          m.cpu_percent + '%');
+  s(`val-wait-${connId}`,         m.waiting_tasks);
+  s(`val-io-${connId}`,           m.db_io_mb + ' MB/s');
+  s(`val-batch-${connId}`,        m.batch_requests.toLocaleString());
+  s(`val-netmb-${connId}`,        (sp.netMbs || 0) + ' MB/s');
+  s(`val-compilations-${connId}`, (sp.compilationsSec || 0).toLocaleString());
+  // KPI summary
+  s(`kpi-cpu-${connId}`,     m.cpu_percent + '%');
+  s(`kpi-wait-${connId}`,    m.waiting_tasks.toLocaleString());
+  s(`kpi-io-${connId}`,      m.db_io_mb + ' MB/s');
+  s(`kpi-sqlmem-${connId}`,  (sp.sqlTotalMemGb || 0).toFixed(1) + ' GB');
+  s(`kpi-ple-${connId}`,     (sp.pleSec || 0).toLocaleString());
+
+  // Status color overrides
+  applyMetricStatus(connId, 'cpu',    m.cpu_percent);
+  applyMetricStatus(connId, 'wait',   m.waiting_tasks);
+  applyMetricStatus(connId, 'sqlmem', sp.sqlMemPct       || 0);
+  applyMetricStatus(connId, 'ple',    sp.pleSec          || 0);
+
+  updateMemoryHealth(connId, sp);
+}
+
+// ─── Tables ───────────────────────────────────────────────────────────────────
+const TABLE_COLS = {
+  proc:[
+    {key:'session_id',label:'Session',type:'num'},{key:'login_name',label:'Login',type:'str'},
+    {key:'host_name',label:'Host',type:'str'},{key:'program_name',label:'Program',type:'trunc'},
+    {key:'status',label:'Status',type:'badge'},{key:'command',label:'Command',type:'str'},
+    {key:'cpu_time',label:'CPU (ms)',type:'num'},{key:'memory_kb',label:'Mem (KB)',type:'num'},
+    {key:'elapsed_sec',label:'Elapsed (s)',type:'num'},{key:'wait_type',label:'Wait Type',type:'str'},
+    {key:'wait_time',label:'Wait (ms)',type:'num'},{key:'blocking_session_id',label:'Blocked By',type:'zero'},
+    {key:'last_query',label:'Last Query',type:'query'},
+  ],
+  waits:[
+    {key:'wait_type',label:'Wait Type',type:'str'},{key:'waiting_tasks_count',label:'Count',type:'num'},
+    {key:'wait_time_ms',label:'Total Wait (ms)',type:'num'},{key:'max_wait_time_ms',label:'Max Wait (ms)',type:'num'},
+    {key:'signal_wait_time_ms',label:'Signal (ms)',type:'num'},
+  ],
+  fileio:[
+    {key:'database_name',label:'Database',type:'str'},{key:'file_name',label:'File',type:'trunc'},
+    {key:'file_type',label:'Type',type:'str'},{key:'num_of_reads',label:'Reads',type:'num'},
+    {key:'num_of_writes',label:'Writes',type:'num'},{key:'kb_read',label:'KB Read',type:'num'},
+    {key:'kb_written',label:'KB Written',type:'num'},{key:'io_stall_read_ms',label:'Read Stall (ms)',type:'num'},
+    {key:'io_stall_write_ms',label:'Write Stall (ms)',type:'num'},{key:'io_stall',label:'Total Stall (ms)',type:'num'},
+  ],
+  recent:[
+    {key:'avg_elapsed_ms',label:'Avg Elapsed (ms)',type:'dec'},{key:'avg_cpu_ms',label:'Avg CPU (ms)',type:'dec'},
+    {key:'avg_logical_reads',label:'Avg Reads',type:'num'},{key:'execution_count',label:'Executions',type:'num'},
+    {key:'last_executed',label:'Last Executed',type:'str'},{key:'query_text',label:'Query',type:'query'},
+  ],
+  active:[
+    {key:'session_id',label:'Session',type:'num'},{key:'status',label:'Status',type:'badge'},
+    {key:'command',label:'Command',type:'str'},{key:'database_name',label:'Database',type:'str'},
+    {key:'cpu_time',label:'CPU (ms)',type:'num'},{key:'elapsed_sec',label:'Elapsed (s)',type:'num'},
+    {key:'reads',label:'Reads',type:'num'},{key:'writes',label:'Writes',type:'num'},
+    {key:'logical_reads',label:'Logical R',type:'num'},{key:'wait_type',label:'Wait Type',type:'str'},
+    {key:'wait_time',label:'Wait (ms)',type:'num'},{key:'blocking_session_id',label:'Blocked By',type:'zero'},
+    {key:'query_text',label:'Query',type:'query'},
+  ],
+  blocking:[
+    {key:'blocking_session_id',label:'Blocker',type:'num'},
+    {key:'blocker_login',label:'Blocker Login',type:'str'},
+    {key:'blocker_host',label:'Blocker Host',type:'trunc'},
+    {key:'blocker_query',label:'Blocker Query',type:'query'},
+    {key:'blocked_session_id',label:'Blocked',type:'num'},
+    {key:'blocked_login',label:'Blocked Login',type:'str'},
+    {key:'blocked_host',label:'Blocked Host',type:'trunc'},
+    {key:'wait_type',label:'Wait Type',type:'str'},
+    {key:'wait_time',label:'Wait (ms)',type:'num'},
+    {key:'elapsed_sec',label:'Elapsed (s)',type:'num'},
+    {key:'database_name',label:'Database',type:'str'},
+    {key:'blocked_query',label:'Blocked Query',type:'query'},
+  ],
+  deadlocks:[
+    {key:'deadlock_time',label:'Time',type:'str'},
+    {key:'process_count',label:'Processes',type:'num'},
+    {key:'spids',label:'SPIDs',type:'str'},
+    {key:'login1',label:'Login',type:'str'},
+    {key:'host1',label:'Host',type:'trunc'},
+    {key:'resource_name',label:'Resource',type:'trunc'},
+    {key:'lock_mode',label:'Lock Mode',type:'str'},
+    {key:'query1',label:'Query 1',type:'query'},
+    {key:'query2',label:'Query 2',type:'query'},
+  ],
+};
+
+const TH    = 'sortable px-3 py-2 text-left font-semibold whitespace-nowrap border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500';
+const TD    = 'px-3 py-1.5 border-b border-slate-50 whitespace-nowrap';
+const EMPTY = 'text-slate-400 italic text-center py-5 text-xs';
+
+function fmtCell(val, type) {
+  if (val===null||val===undefined) return '<span class="text-slate-300">—</span>';
+  switch(type){
+    case 'num': return `<span class="tabular-nums">${Math.round(val).toLocaleString()}</span>`;
+    case 'dec': return `<span class="tabular-nums">${parseFloat(val).toFixed(1)}</span>`;
+    case 'zero': return val&&val!==0?`<span class="text-red-600 font-medium tabular-nums">${val}</span>`:'<span class="text-slate-300">—</span>';
+    case 'badge':{
+      const s=String(val).toLowerCase();
+      const cls=s==='running'?'status-running':s==='suspended'?'status-suspended':s==='sleeping'?'status-sleeping':s==='background'?'status-background':'status-other';
+      return `<span class="px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${cls}">${val}</span>`;
+    }
+    case 'query':{
+      const c=String(val).replace(/\s+/g,' ').trim();
+      const sh=c.length>60?c.slice(0,60)+'…':c;
+      return `<span class="query-cell block" title="${c.replace(/"/g,'&quot;')}">${sh||'<span class="text-slate-300">—</span>'}</span>`;
+    }
+    case 'trunc':{
+      const s=String(val);
+      return `<span class="trunc-cell block" title="${s.replace(/"/g,'&quot;')}">${s||'—'}</span>`;
+    }
+    default: return String(val)||'<span class="text-slate-300">—</span>';
+  }
+}
+
+function sortData(data,col,dir){
+  return [...data].sort((a,b)=>{
+    const av=a[col],bv=b[col],m=dir==='desc'?-1:1;
+    if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1;
+    return typeof av==='string'?m*av.localeCompare(bv):m*(av-bv);
+  });
+}
+
+function renderTable(connId, tableId) {
+  const conn = conns[connId]; if (!conn) return;
+  const cols = TABLE_COLS[tableId];
+  const {col,dir} = conn.sortState[tableId];
+
+  const thead = document.getElementById(`${tableId}-thead-${connId}`); if (!thead) return;
+  const killTh = tableId==='proc' ? `<th class="px-3 py-2 text-left font-semibold whitespace-nowrap border-b border-slate-200 bg-slate-50"></th>` : '';
+  thead.innerHTML = '<tr>' + cols.map(c => {
+    const active = c.key===col?' sort-active':'';
+    const arrow  = c.key===col?(dir==='desc'?'↓':'↑'):'⇅';
+    return `<th class="${TH}${active}" onclick="sortBy('${connId}','${tableId}','${c.key}')">${c.label} <span class="sort-icon">${arrow}</span></th>`;
+  }).join('') + killTh + '</tr>';
+
+  const tbody  = document.getElementById(`${tableId}-tbody-${connId}`);
+  const countEl = document.getElementById(`${tableId}-count-${connId}`);
+  const data   = conn.tableData[tableId];
+
+  if (!data||data.length===0){
+    tbody.innerHTML = `<tr><td colspan="${cols.length}" class="${EMPTY}">No data</td></tr>`;
+    if(countEl) countEl.textContent='0';
+    return;
+  }
+  const sorted = sortData(data,col,dir);
+  tbody.innerHTML = sorted.map((row,i) => {
+    const cells = cols.map(c=>`<td class="${TD}">${fmtCell(row[c.key],c.type)}</td>`).join('');
+    const killBtn = (tableId==='proc' && String(row.status).toLowerCase()==='sleeping')
+      ? `<td class="${TD}"><button class="kill-btn" onclick="killSession('${connId}',${row.session_id})">Kill</button></td>`
+      : (tableId==='proc' ? `<td class="${TD}"></td>` : '');
+    const rowStyle = tableId==='blocking'
+      ? (i===0 ? ' style="background:#fef2f2;"' : '')
+      : tableId==='deadlocks' ? ' style="background:#fff7ed;"' : '';
+    return `<tr class="dr ${i%2&&tableId!=='blocking'&&tableId!=='deadlocks'?'dr-odd':''}"${rowStyle}>${cells}${killBtn}</tr>`;
+  }).join('');
+  if(countEl) {
+    countEl.textContent = data.length;
+    // Red badge when blocking/deadlocks have entries
+    if ((tableId==='blocking'||tableId==='deadlocks') && data.length > 0) {
+      countEl.style.background = 'rgba(220,38,38,.1)';
+      countEl.style.color      = 'var(--c-crit)';
+      countEl.style.fontWeight = '700';
+    } else {
+      countEl.style.background = '';
+      countEl.style.color      = '';
+      countEl.style.fontWeight = '';
+    }
+  }
+}
+
+function renderDbSizes(connId, data) {
+  const el = document.getElementById(`dbsizes-grid-${connId}`);
+  if (!el) return;
+  if (!data || data.length === 0) { el.innerHTML = '<span class="text-slate-400 italic text-sm">No data</span>'; return; }
+
+  const fmtBytes = b => {
+    if (b >= 1099511627776) return (b/1099511627776).toFixed(1)+' TB';
+    if (b >= 1073741824)    return (b/1073741824).toFixed(1)+' GB';
+    if (b >= 1048576)       return (b/1048576).toFixed(1)+' MB';
+    return (b/1024).toFixed(0)+' KB';
+  };
+
+  // Group by volume_mount_point (unique per drive letter)
+  const volumes = new Map();
+  for (const row of data) {
+    const vKey = row.volume_mount_point || String(row.volume_total_bytes);
+    if (!volumes.has(vKey)) volumes.set(vKey, { total: row.volume_total_bytes, avail: row.volume_available_bytes, mount: row.volume_mount_point || vKey, dbs: [] });
+    else {
+      // keep freshest avail (may differ slightly per poll)
+      const v = volumes.get(vKey);
+      v.avail = row.volume_available_bytes;
+    }
+    volumes.get(vKey).dbs.push(row);
+  }
+
+  // Sort volumes by mount point alphabetically
+  const sortedVols = [...volumes.values()].sort((a,b) => a.mount.localeCompare(b.mount));
+
+  let html = '<div class="space-y-4">';
+  for (const vol of sortedVols) {
+    const used    = vol.total - vol.avail;
+    const freePct = vol.total > 0 ? (vol.avail / vol.total) * 100 : 100;
+    const usedPct = 100 - freePct;
+    // Threshold: free < 20% → critical (red), free < 35% → warn (amber)
+    const isCrit  = freePct < 20;
+    const isWarn  = freePct < 35 && !isCrit;
+    const barCls  = isCrit ? 'bar-crit' : isWarn ? 'bar-warn' : 'bar-ok';
+    const pctTxtCls = isCrit ? 'text-red-600 font-bold' : isWarn ? 'text-amber-600 font-semibold' : 'text-green-600';
+    const mountLabel = vol.mount.replace(/\\+$/, ''); // strip trailing backslash
+    html += `
+      <div>
+        <div class="flex items-center justify-between mb-1 gap-2">
+          <div class="flex items-center gap-2">
+            ${isCrit ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#ef4444;"></span>' : isWarn ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#f59e0b;"></span>' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;"></span>'}
+            <span class="text-xs font-bold ${isCrit?'text-red-700':isWarn?'text-amber-700':'text-slate-700'}">${escapeHtml(mountLabel)}</span>
+            ${isCrit ? '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:#fef2f2;color:#dc2626;">LOW DISK</span>' : ''}
+          </div>
+          <span class="text-xs text-slate-500 flex-shrink-0">
+            <span class="${pctTxtCls}">${fmtBytes(vol.avail)} free</span>
+            &nbsp;/&nbsp;${fmtBytes(vol.total)}
+            &nbsp;·&nbsp;<span class="${pctTxtCls}">${freePct.toFixed(1)}% free</span>
+          </span>
+        </div>
+        <div class="db-bar-track mb-2"><div class="db-bar-fill ${barCls}" style="width:${usedPct.toFixed(2)}%;"></div></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">`;
+    for (const row of vol.dbs) {
+      const dbPct = vol.total > 0 ? Math.min(100, (row.allocated_bytes / vol.total) * 100) : 0;
+      html += `
+          <div class="bg-slate-50 rounded-lg px-3 py-2">
+            <div class="flex items-center justify-between mb-1 gap-2">
+              <span class="text-xs font-semibold text-slate-700 truncate" title="${escapeHtml(row.database_name)}">${escapeHtml(row.database_name)}</span>
+              <span class="text-xs text-slate-500 flex-shrink-0">${fmtBytes(row.allocated_bytes)}</span>
+            </div>
+            <div class="db-bar-track"><div class="db-bar-fill bar-ok" style="width:${dbPct.toFixed(2)}%;background:var(--sort-active);opacity:.7;"></div></div>
+          </div>`;
+    }
+    html += '</div></div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function killAllSleeping(connId) {
+  const conn = conns[connId]; if (!conn) return;
+  const sleeping = (conn.tableData.proc || []).filter(r => String(r.status).toLowerCase() === 'sleeping');
+  if (sleeping.length === 0) {
+    showDialog({ title:'No Sleeping Sessions', message:'There are no sleeping sessions to kill.', confirmText:'OK', hideCancel:true, type:'info' });
+    return;
+  }
+  const ok = await showDialog({
+    title: 'Kill All Sleeping Sessions',
+    message: `This will kill <strong>${sleeping.length}</strong> sleeping session(s) on <strong>${escapeHtml(conn.label)}</strong>.<br><br>This cannot be undone.`,
+    confirmText: `Kill ${sleeping.length} Session${sleeping.length!==1?'s':''}`,
+    type: 'danger',
+  });
+  if (!ok) return;
+  const btn = document.getElementById(`kill-sleeping-btn-${connId}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Killing…'; }
+  try {
+    const res  = await fetch(`/api/connections/${connId}/kill-sleeping`, { method:'POST', headers:{'Content-Type':'application/json'} });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (btn) btn.textContent = `Killed ${data.killed}`;
+    setTimeout(() => { if (btn) { btn.disabled=false; btn.textContent='Kill All Sleeping'; } }, 2500);
+  } catch (err) {
+    showDialog({ title:'Kill Failed', message: escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
+    if (btn) { btn.disabled=false; btn.textContent='Kill All Sleeping'; }
+  }
+}
+
+// ─── Memory Health card ───────────────────────────────────────────────────────
+function updateMemoryHealth(connId, sp) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el[typeof val === 'string' && val.includes('<') ? 'innerHTML' : 'textContent'] = val; };
+  const css = (id, prop, val) => { const el = document.getElementById(id); if (el) el.style[prop] = val; };
+
+  const committed = sp.sqlTotalMemGb  || 0;
+  const target    = sp.sqlTargetMemGb || 0;
+  const pct       = sp.sqlMemPct      || 0;
+  const ple       = sp.pleSec         || 0;
+  const buf       = sp.bufferCacheHit || 0;
+  const grants    = sp.memGrantsPending || 0;
+
+  // Left: committed vs target bar
+  const pctColor = metricStatusColor('sqlmem', pct) || '#3b82f6';
+  set(`memh-pct-${connId}`, pct + '%');
+  css(`memh-pct-${connId}`, 'color', pctColor);
+  css(`memh-bar-${connId}`, 'width', Math.min(pct, 100) + '%');
+  css(`memh-bar-${connId}`, 'background', pctColor);
+  set(`memh-committed-${connId}`, committed.toFixed(1) + ' GB committed');
+  set(`memh-target-${connId}`,    target.toFixed(1)    + ' GB target');
+
+  // PLE
+  const pleColor = metricStatusColor('ple', ple) || C_OK;
+  const plePct   = Math.min((ple / 4000) * 100, 100);
+  const pleLbl   = ple >= 1000 ? (ple / 1000).toFixed(1) + 'k s' : ple.toLocaleString() + ' s';
+  const pleBadge = ple < 300 ? 'Critical' : ple < 1000 ? 'Warning' : 'Healthy';
+  set(`memh-ple-val-${connId}`,    pleLbl);
+  css(`memh-ple-val-${connId}`,    'color', pleColor);
+  css(`memh-ple-bar-${connId}`,    'width',      plePct + '%');
+  css(`memh-ple-bar-${connId}`,    'background', pleColor);
+  set(`memh-ple-badge-${connId}`,  pleBadge);
+  css(`memh-ple-badge-${connId}`,  'color',      pleColor);
+  css(`memh-ple-badge-${connId}`,  'background', pleColor + '18');
+
+  // Buffer Cache Hit Ratio
+  const bufColor = metricStatusColor('bufcache', buf) || C_OK;
+  const bufBadge = buf < 95 ? 'Critical' : buf < 99 ? 'Warning' : 'Healthy';
+  set(`memh-bufcache-val-${connId}`,   buf.toFixed(1) + '%');
+  css(`memh-bufcache-val-${connId}`,   'color', bufColor);
+  css(`memh-bufcache-bar-${connId}`,   'width',      Math.min(buf, 100) + '%');
+  css(`memh-bufcache-bar-${connId}`,   'background', bufColor);
+  set(`memh-bufcache-badge-${connId}`, bufBadge);
+  css(`memh-bufcache-badge-${connId}`, 'color',      bufColor);
+  css(`memh-bufcache-badge-${connId}`, 'background', bufColor + '18');
+
+  // Memory Grants Pending
+  const grantColor = metricStatusColor('grants', grants) || C_OK;
+  const grantBadge = grants === 0 ? 'Healthy' : grants < 5 ? 'Warning' : 'Critical';
+  const grantPct   = Math.min((grants / 10) * 100, 100);
+  set(`memh-grants-val-${connId}`,   grants.toString());
+  css(`memh-grants-val-${connId}`,   'color', grantColor);
+  css(`memh-grants-bar-${connId}`,   'width',      grantPct + '%');
+  css(`memh-grants-bar-${connId}`,   'background', grantColor);
+  set(`memh-grants-badge-${connId}`, grantBadge);
+  css(`memh-grants-badge-${connId}`, 'color',      grantColor);
+  css(`memh-grants-badge-${connId}`, 'background', grantColor + '18');
+}
+
+function toggleSessionGroup(connId, keyEnc) {
+  const conn = conns[connId]; if (!conn) return;
+  const key = decodeURIComponent(keyEnc);
+  if (conn.expandedSessionGroups.has(key)) conn.expandedSessionGroups.delete(key);
+  else conn.expandedSessionGroups.add(key);
+  const listEl = document.getElementById(`sessions-list-${connId}`);
+  if (listEl && conn._lastProcesses) _renderSessionsList(connId, conn._lastProcesses);
+}
+
+function _renderSessionsList(connId, processes) {
+  const listEl = document.getElementById(`sessions-list-${connId}`);
+  if (!listEl) return;
+  const conn = conns[connId];
+  const expanded = conn ? conn.expandedSessionGroups : new Set();
+
+  // Build groups
+  const map = new Map();
+  for (const row of processes) {
+    const host  = row.host_name  || '(unknown)';
+    const login = row.login_name || '(unknown)';
+    const prog  = row.program_name || '';
+    const key   = `${login}||${host}`;
+    if (!map.has(key)) map.set(key, { host, login, prog, count:0, totalCpu:0, statuses:new Set(), isBlocked:false, sessions:[] });
+    const g = map.get(key);
+    g.count++;
+    g.totalCpu += (row.cpu_time || 0);
+    g.statuses.add(String(row.status).toLowerCase());
+    if (row.blocking_session_id > 0) g.isBlocked = true;
+    g.sessions.push(row);
+  }
+
+  // Sort by totalCpu desc (top consumers first)
+  const groups = [...map.values()].sort((a,b) => b.totalCpu - a.totalCpu);
+
+  const html = groups.map(g => {
+    const hasActive = g.statuses.has('running') || g.statuses.has('suspended');
+    const dotColor  = g.isBlocked ? '#dc2626' : hasActive ? '#22c55e' : '#94a3b8';
+    const countColor = g.count >= 10 ? '#dc2626' : g.count >= 5 ? '#ea580c' : '#3b82f6';
+    const cpuFmt = g.totalCpu >= 1000 ? Math.round(g.totalCpu/1000)+'s' : g.totalCpu+'ms';
+    const key    = `${g.login}||${g.host}`;
+    const keyEnc = encodeURIComponent(key);
+    const isOpen = expanded.has(key);
+
+    // Per-session expanded rows
+    let detailRows = '';
+    if (isOpen) {
+      const sorted = [...g.sessions].sort((a,b) => (b.cpu_time||0)-(a.cpu_time||0));
+      detailRows = sorted.map(s => {
+        const stLow   = String(s.status||'').toLowerCase();
+        const stColor = stLow==='running'?'#16a34a':stLow==='suspended'?'#ea580c':stLow==='sleeping'?'#94a3b8':'#475569';
+        const blocked = s.blocking_session_id > 0
+          ? `<span style="color:#dc2626;font-size:10px;font-weight:700;" title="Blocked by SPID ${s.blocking_session_id}">⊘ BLK</span>` : '';
+        const waitBadge = s.wait_type
+          ? `<span style="font-size:9px;color:#64748b;background:#f1f5f9;border-radius:3px;padding:1px 4px;">${escapeHtml(s.wait_type)}</span>` : '';
+        const qPrev = s.last_query ? escapeHtml(s.last_query.substring(0,80).trim().replace(/\s+/g,' ')) : '';
+        const sCpu  = (s.cpu_time||0) >= 1000 ? Math.round((s.cpu_time||0)/1000)+'s' : (s.cpu_time||0)+'ms';
+        const sElap = s.elapsed_sec ? (s.elapsed_sec >= 60 ? Math.round(s.elapsed_sec/60)+'m' : s.elapsed_sec+'s') : '—';
+        return `<div style="background:#f8fafc;border-left:3px solid ${stColor};margin:2px 0;padding:6px 10px;font-size:10px;">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span style="color:#94a3b8;font-family:monospace;">SPID ${s.session_id}</span>
+            <span style="color:${stColor};font-weight:600;text-transform:capitalize;">${escapeHtml(s.status||'')}</span>
+            ${blocked}
+            ${waitBadge}
+            <span class="ml-auto" style="color:#475569;">CPU ${sCpu}</span>
+            <span style="color:#94a3b8;">/ ${sElap}</span>
+          </div>
+          ${qPrev ? `<div style="color:#64748b;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:9px;" title="${escapeHtml(s.last_query||'')}">${qPrev}</div>` : ''}
+        </div>`;
+      }).join('');
+      detailRows = `<div style="padding:4px 0 4px 12px;">${detailRows}</div>`;
+    }
+
+    const blockBadge = g.isBlocked
+      ? `<span style="font-size:9px;font-weight:700;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:3px;padding:1px 4px;flex-shrink:0;">⚠ BLOCKED</span>` : '';
+
+    return `<div class="border-b border-slate-50 last:border-0">
+      <div class="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-slate-50 transition-colors select-none"
+           onclick="toggleSessionGroup('${connId}','${keyEnc}')">
+        <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${dotColor};"></span>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-slate-700 truncate text-xs" title="${escapeHtml(g.host)}">${escapeHtml(g.host)}</div>
+          <div class="text-slate-400 truncate" style="font-size:10px;">${escapeHtml(g.login)}</div>
+        </div>
+        ${blockBadge}
+        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0" style="color:${countColor};background:${countColor}18;">${g.count}</span>
+        <span class="text-[10px] text-slate-400 flex-shrink-0">${cpuFmt}</span>
+        <span style="font-size:9px;color:#94a3b8;flex-shrink:0;">${isOpen?'▴':'▾'}</span>
+      </div>
+      ${detailRows}
+    </div>`;
+  }).join('');
+
+  listEl.innerHTML = html || '<span class="text-xs text-slate-400 italic px-5 py-3 block">No sessions</span>';
+}
+
+function renderConnectedSessions(connId, processes) {
+  const countEl = document.getElementById(`val-sessions-${connId}`);
+  const conn = conns[connId];
+  if (conn) conn._lastProcesses = processes;
+
+  const cnt = processes ? processes.length : 0;
+  if (countEl) countEl.textContent = cnt.toLocaleString();
+  const kpiSess = document.getElementById(`kpi-sessions-${connId}`);
+  if (kpiSess) kpiSess.textContent = cnt.toLocaleString();
+
+  if (!processes || processes.length === 0) {
+    const listEl = document.getElementById(`sessions-list-${connId}`);
+    if (listEl) listEl.innerHTML = '<span class="text-xs text-slate-400 italic px-5 py-3 block">No sessions</span>';
+    return;
+  }
+  _renderSessionsList(connId, processes);
+}
+
+// ─── SQL Agent Jobs ───────────────────────────────────────────────────────────
+let _jobsConnId = null;
+
+const JOB_STATUS_ORDER = { Running:0, Failed:1, Retry:2, Succeeded:3, Idle:4, Cancelled:5, Disabled:6 };
+
+function fmtJobDuration(n) {
+  if (!n) return '—';
+  const h = Math.floor(n / 10000), m = Math.floor((n % 10000) / 100), s = n % 100;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function fmtJobStatus(status) {
+  const map = {
+    'Running':   ['#dcfce7','#16a34a','●'],
+    'Succeeded': ['#dbeafe','#1d4ed8','✓'],
+    'Failed':    ['#fef2f2','#dc2626','✕'],
+    'Retry':     ['#fef3c7','#d97706','↺'],
+    'Cancelled': ['#f3f4f6','#6b7280','○'],
+    'Disabled':  ['#f8fafc','#94a3b8','—'],
+    'Idle':      ['#f1f5f9','#475569','·'],
+  };
+  const [bg, txt, icon] = map[status] || ['#f1f5f9','#475569','·'];
+  return `<span style="display:inline-flex;align-items:center;gap:4px;background:${bg};color:${txt};padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.03em;white-space:nowrap;"><span style="font-size:9px;">${icon}</span>${status}</span>`;
+}
+
+function _sortJobsData(jobs, sortState) {
+  if (!sortState.col) {
+    return [...jobs].sort((a, b) => {
+      const ao = JOB_STATUS_ORDER[a.status] ?? 99;
+      const bo = JOB_STATUS_ORDER[b.status] ?? 99;
+      if (ao !== bo) return ao - bo;
+      return (a.job_name || '').localeCompare(b.job_name || '');
+    });
+  }
+  return [...jobs].sort((a, b) => {
+    const m = sortState.dir === 'asc' ? 1 : -1;
+    let av = a[sortState.col], bv = b[sortState.col];
+    if (sortState.col === 'status') { av = JOB_STATUS_ORDER[a.status]??99; bv = JOB_STATUS_ORDER[b.status]??99; }
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1; if (bv == null) return -1;
+    return typeof av === 'string' ? m * av.localeCompare(bv) : m * (av - bv);
+  });
+}
+
+function renderJobsFilters(connId, jobs) {
+  const el = document.getElementById(`jobs-filters-${connId}`); if (!el) return;
+  const conn = conns[connId]; if (!conn) return;
+  const cnt = {
+    all:       jobs.length,
+    running:   jobs.filter(j => j.status === 'Running').length,
+    failed:    jobs.filter(j => j.status === 'Failed').length,
+    succeeded: jobs.filter(j => j.status === 'Succeeded').length,
+    idle:      jobs.filter(j => j.status === 'Idle' || j.status === 'Cancelled' || j.status === 'Disabled').length,
+  };
+  const PILLS = [
+    { key:'all',       label:'All',       dot:null      },
+    { key:'running',   label:'Running',   dot:'#16a34a' },
+    { key:'failed',    label:'Failed',    dot:'#dc2626' },
+    { key:'succeeded', label:'Succeeded', dot:'#1d4ed8' },
+    { key:'idle',      label:'Idle',      dot:'#94a3b8' },
+  ];
+  el.innerHTML = PILLS.map(p => {
+    const active = conn.jobsFilter === p.key;
+    const dotHtml = p.dot ? `<span style="width:6px;height:6px;border-radius:50%;background:${p.dot};display:inline-block;flex-shrink:0;"></span>` : '';
+    return `<button onclick="setJobsFilter('${connId}','${p.key}')"
+      style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;font-size:11px;font-weight:${active?700:500};border-radius:99px;
+             border:1.5px solid ${active?'#3b82f6':'#e2e8f0'};background:${active?'#eff6ff':'#f8fafc'};
+             color:${active?'#1d4ed8':'#64748b'};cursor:pointer;transition:all .12s;white-space:nowrap;">
+      ${dotHtml}${p.label}<span style="font-size:10px;margin-left:2px;opacity:.65;">${cnt[p.key]}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderJobsThead(connId) {
+  const el = document.getElementById(`jobs-thead-${connId}`); if (!el) return;
+  const conn = conns[connId]; if (!conn) return;
+  const { col, dir } = conn.jobsSort;
+  const BASE = 'padding:6px 16px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #e2e8f0;background:#f8fafc;position:sticky;top:0;z-index:1;cursor:pointer;user-select:none;';
+  const COLS = [
+    { key:'job_name',          label:'Job Name' },
+    { key:'status',            label:'Status'   },
+    { key:'last_run_date',     label:'Last Run' },
+    { key:'last_run_duration', label:'Duration' },
+    { key:'next_run_date',     label:'Next Run' },
+  ];
+  el.innerHTML = COLS.map(c => {
+    const active = c.key === col;
+    const arrow  = active ? (dir === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
+    return `<th style="${BASE}${active?'color:#3b82f6;':''}" onclick="sortJobsBy('${connId}','${c.key}')">
+      ${c.label}<span style="opacity:${active?1:.3};font-size:10px;margin-left:2px;">${arrow}</span>
+    </th>`;
+  }).join('') + `<th style="${BASE}cursor:default;">Actions</th>`;
+}
+
+function setJobsFilter(connId, filter) {
+  const conn = conns[connId]; if (!conn) return;
+  conn.jobsFilter = filter;
+  renderJobsCard(connId, conn.tableData.jobs || []);
+}
+
+function sortJobsBy(connId, col) {
+  const conn = conns[connId]; if (!conn) return;
+  conn.jobsSort.dir = conn.jobsSort.col === col ? (conn.jobsSort.dir === 'asc' ? 'desc' : 'asc') : (col === 'job_name' ? 'asc' : 'desc');
+  conn.jobsSort.col = col;
+  renderJobsCard(connId, conn.tableData.jobs || []);
+}
+
+function onJobsSearch(connId, val) {
+  const conn = conns[connId]; if (!conn) return;
+  conn.jobsSearch = val;
+  renderJobsCard(connId, conn.tableData.jobs || []);
+}
+
+function renderJobsCard(connId, jobs) {
+  const conn     = conns[connId]; if (!conn) return;
+  const totalEl  = document.getElementById(`val-jobs-total-${connId}`);
+  const badgesEl = document.getElementById(`jobs-badges-${connId}`);
+  const tbody    = document.getElementById(`jobs-inline-tbody-${connId}`);
+  if (!tbody) return;
+
+  const running = jobs.filter(j => j.status === 'Running').length;
+  const failed  = jobs.filter(j => j.status === 'Failed').length;
+
+  if (totalEl) totalEl.textContent = jobs.length;
+
+  if (badgesEl) {
+    const parts = [];
+    if (running > 0) parts.push(`<span style="color:#16a34a;font-size:9px;">●</span> <span style="color:#475569;">${running} Running</span>`);
+    if (failed  > 0) parts.push(`<span style="color:#dc2626;font-size:9px;">●</span> <span style="color:#dc2626;font-weight:600;">${failed} Failed</span>`);
+    if (parts.length === 0) parts.push(`<span style="color:#94a3b8;font-style:italic;font-size:11px;">All idle</span>`);
+    badgesEl.innerHTML = parts.join('<span style="color:#cbd5e1;margin:0 6px;">·</span>');
+  }
+
+  renderJobsFilters(connId, jobs);
+  renderJobsThead(connId);
+
+  let filtered = jobs;
+  if (conn.jobsFilter !== 'all') {
+    filtered = jobs.filter(j => {
+      if (conn.jobsFilter === 'running')   return j.status === 'Running';
+      if (conn.jobsFilter === 'failed')    return j.status === 'Failed';
+      if (conn.jobsFilter === 'succeeded') return j.status === 'Succeeded';
+      if (conn.jobsFilter === 'idle')      return j.status === 'Idle' || j.status === 'Cancelled' || j.status === 'Disabled';
+      return true;
+    });
+  }
+
+  if (conn.jobsSearch) {
+    const q = conn.jobsSearch.toLowerCase();
+    filtered = filtered.filter(j => (j.job_name || '').toLowerCase().includes(q));
+  }
+
+  filtered = _sortJobsData(filtered, conn.jobsSort);
+
+  if (filtered.length === 0) {
+    const msg = jobs.length === 0 ? 'No jobs found — user may lack msdb read permission' : 'No jobs match filter';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-style:italic;font-size:12px;">${msg}</td></tr>`;
+  } else {
+    const TDs = 'padding:5px 16px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+    tbody.innerHTML = filtered.map(j => {
+      const isRunning = j.status === 'Running';
+      const isFailed  = j.status === 'Failed';
+      const canStart  = !isRunning && j.enabled === 1;
+      const startBtn  = canStart
+        ? `<button data-conn="${escapeHtml(connId)}" data-job="${escapeHtml(j.job_name)}"
+                  onclick="event.stopPropagation();handleJobAction(this,'start')"
+                  style="padding:2px 8px;font-size:10px;font-weight:600;border-radius:5px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;cursor:pointer;margin-right:4px;"
+                  onmouseover="this.style.background='#16a34a';this.style.color='#fff'"
+                  onmouseout="this.style.background='#dcfce7';this.style.color='#16a34a'">▶ Start</button>`
+        : '';
+      const stopBtn   = isRunning
+        ? `<button data-conn="${escapeHtml(connId)}" data-job="${escapeHtml(j.job_name)}"
+                  onclick="event.stopPropagation();handleJobAction(this,'stop')"
+                  style="padding:2px 8px;font-size:10px;font-weight:600;border-radius:5px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;cursor:pointer;"
+                  onmouseover="this.style.background='#dc2626';this.style.color='#fff'"
+                  onmouseout="this.style.background='#fef2f2';this.style.color='#dc2626'">■ Stop</button>`
+        : '';
+      const runningHint = isRunning ? ` <span style="color:#94a3b8;font-size:10px;">(${j.running_sec}s)</span>` : '';
+      const lastDate    = j.last_run_date ? j.last_run_date.replace('T',' ') : '—';
+      const nextDate    = j.next_run_date ? j.next_run_date.replace('T',' ') : '—';
+      const rowBg = isRunning ? 'background:#f0fdf4;' : isFailed ? 'background:#fff8f8;' : '';
+      return `<tr style="${rowBg}cursor:default;" class="dr">
+        <td style="${TDs}max-width:260px;overflow:hidden;text-overflow:ellipsis;font-weight:${isRunning||isFailed?'600':'400'};"
+            title="${escapeHtml(j.job_name)}">${escapeHtml(j.job_name)}${runningHint}</td>
+        <td style="${TDs}">${fmtJobStatus(j.status)}</td>
+        <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${lastDate}</td>
+        <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${fmtJobDuration(j.last_run_duration)}</td>
+        <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${nextDate}</td>
+        <td style="${TDs}">${startBtn}${stopBtn}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  if (_jobsConnId === connId) renderJobsModalTable(connId);
+}
+
+function openJobsModal(connId) {
+  _jobsConnId = connId;
+  const conn = conns[connId];
+  document.getElementById('jobs-modal-title').textContent    = conn ? conn.label : connId;
+  document.getElementById('jobs-modal-subtitle').textContent = 'SQL Agent Job Activity';
+  document.getElementById('jobs-modal').style.display = 'flex';
+  renderJobsModalTable(connId);
+}
+
+function closeJobsModal() {
+  document.getElementById('jobs-modal').style.display = 'none';
+  _jobsConnId = null;
+}
+
+function renderJobsModalTable(connId) {
+  const conn  = conns[connId]; if (!conn) return;
+  const tbody = document.getElementById('jobs-modal-tbody'); if (!tbody) return;
+  const jobs  = conn.tableData.jobs || [];
+
+  if (jobs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-style:italic;font-size:12px;">No jobs found — user may lack msdb read permission</td></tr>`;
+    return;
+  }
+
+  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+  tbody.innerHTML = jobs.map(j => {
+    const isRunning = j.status === 'Running';
+    const canStart  = !isRunning && j.enabled === 1;
+    const startBtn  = canStart
+      ? `<button data-conn="${escapeHtml(connId)}" data-job="${escapeHtml(j.job_name)}"
+                onclick="handleJobAction(this,'start')"
+                style="padding:1px 7px;font-size:10px;font-weight:600;border-radius:4px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;cursor:pointer;margin-right:4px;"
+                onmouseover="this.style.background='#16a34a';this.style.color='#fff'"
+                onmouseout="this.style.background='#dcfce7';this.style.color='#16a34a'">▶ Start</button>`
+      : '';
+    const stopBtn   = isRunning
+      ? `<button data-conn="${escapeHtml(connId)}" data-job="${escapeHtml(j.job_name)}"
+                onclick="handleJobAction(this,'stop')"
+                style="padding:1px 7px;font-size:10px;font-weight:600;border-radius:4px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;cursor:pointer;"
+                onmouseover="this.style.background='#dc2626';this.style.color='#fff'"
+                onmouseout="this.style.background='#fef2f2';this.style.color='#dc2626'">■ Stop</button>`
+      : '';
+    const runningHint = isRunning ? ` <span style="color:#94a3b8;font-size:10px;">(${j.running_sec}s)</span>` : '';
+    const lastDate    = j.last_run_date ? j.last_run_date.replace('T', ' ') : '—';
+    const nextDate    = j.next_run_date ? j.next_run_date.replace('T', ' ') : '—';
+    return `<tr style="${isRunning ? 'background:#f0fdf4;' : ''}cursor:default;">
+      <td style="${TDs}max-width:260px;overflow:hidden;text-overflow:ellipsis;font-weight:${isRunning?'600':'400'};"
+          title="${escapeHtml(j.job_name)}">${escapeHtml(j.job_name)}${runningHint}</td>
+      <td style="${TDs}">${fmtJobStatus(j.status)}</td>
+      <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${lastDate}</td>
+      <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${fmtJobDuration(j.last_run_duration)}</td>
+      <td style="${TDs}color:#64748b;font-variant-numeric:tabular-nums;">${nextDate}</td>
+      <td style="${TDs}">${startBtn}${stopBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+function handleJobAction(btn, action) {
+  const connId  = btn.dataset.conn;
+  const jobName = btn.dataset.job;
+  if (action === 'start') startJob(connId, jobName);
+  else                    stopJob(connId, jobName);
+}
+
+async function startJob(connId, jobName) {
+  const ok = await showDialog({
+    title: 'Start Job',
+    message: `Start SQL Agent job<br><strong>${escapeHtml(jobName)}</strong>?`,
+    confirmText: 'Start Job', type: 'info',
+  });
+  if (!ok) return;
+  try {
+    const res  = await fetch(`/api/connections/${connId}/jobs/start`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ jobName }),
+    });
+    const data = await res.json();
+    if (!res.ok) showDialog({ title:'Start Failed', message:escapeHtml(data.error||'Unknown error'), confirmText:'OK', hideCancel:true, type:'danger' });
+  } catch (err) {
+    showDialog({ title:'Start Failed', message:escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
+  }
+}
+
+async function stopJob(connId, jobName) {
+  const ok = await showDialog({
+    title: 'Stop Job',
+    message: `Stop running SQL Agent job<br><strong>${escapeHtml(jobName)}</strong>?<br><br>This requests the job to stop — may take a moment.`,
+    confirmText: 'Stop Job', type: 'danger',
+  });
+  if (!ok) return;
+  try {
+    const res  = await fetch(`/api/connections/${connId}/jobs/stop`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ jobName }),
+    });
+    const data = await res.json();
+    if (!res.ok) showDialog({ title:'Stop Failed', message:escapeHtml(data.error||'Unknown error'), confirmText:'OK', hideCancel:true, type:'danger' });
+  } catch (err) {
+    showDialog({ title:'Stop Failed', message:escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
+  }
+}
+
+let _sdConnId = null, _sdHost = null, _sdLogin = null;
+
+function _setSessionDetailHostCols(show) {
+  document.getElementById('sd-th-host').style.display  = show ? '' : 'none';
+  document.getElementById('sd-th-login').style.display = show ? '' : 'none';
+}
+
+function openAllSessionsDetail(connId) {
+  _sdConnId = connId;
+  _sdHost   = null;
+  _sdLogin  = null;
+  const conn = conns[connId];
+  document.getElementById('sd-title').textContent    = conn ? conn.label : connId;
+  document.getElementById('sd-subtitle').textContent = 'All Connected Sessions';
+  _setSessionDetailHostCols(true);
+  document.getElementById('session-detail-modal').style.display = 'flex';
+  refreshSessionDetail();
+}
+
+function openSessionDetail(connId, hostEnc, loginEnc) {
+  _sdConnId = connId;
+  _sdHost   = decodeURIComponent(hostEnc);
+  _sdLogin  = decodeURIComponent(loginEnc);
+  const el = document.getElementById('session-detail-modal');
+  document.getElementById('sd-title').textContent    = _sdHost;
+  document.getElementById('sd-subtitle').textContent = _sdLogin;
+  _setSessionDetailHostCols(false);
+  document.getElementById('session-detail-modal').style.display = 'flex';
+  refreshSessionDetail();
+}
+
+function closeSessionDetail() {
+  document.getElementById('session-detail-modal').style.display = 'none';
+  _sdConnId = _sdHost = _sdLogin = null;
+}
+
+function refreshSessionDetail() {
+  if (!_sdConnId) return;
+  const conn = conns[_sdConnId]; if (!conn) return;
+  const rows = _sdHost === null
+    ? (conn.tableData.proc || [])
+    : (conn.tableData.proc || []).filter(r =>
+        (r.host_name||'(unknown)') === _sdHost && (r.login_name||'(unknown)') === _sdLogin
+      );
+  const tbody = document.getElementById('sd-tbody');
+  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+  const fmtStatus = s => {
+    const c = String(s).toLowerCase();
+    const bg = c==='running'?'#d4ead0':c==='suspended'?'#f5e6c0':c==='sleeping'?'#ece9e0':'#e2e8f0';
+    const txt= c==='running'?'#2a5220':c==='suspended'?'#7a5010':c==='sleeping'?'#5c5848':'#334155';
+    return `<span style="background:${bg};color:${txt};padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;">${s}</span>`;
+  };
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:16px;color:#94a3b8;font-style:italic;font-size:12px;">No sessions found</td></tr>`;
+    return;
+  }
+  const showHostCol = (_sdHost === null);
+  tbody.innerHTML = rows.map(r => {
+    const isSleeping = String(r.status).toLowerCase() === 'sleeping';
+    const killTd = isSleeping
+      ? `<td style="${TDs}"><button class="kill-btn" onclick="killSessionFromDetail('${_sdConnId}',${r.session_id})">Kill</button></td>`
+      : `<td style="${TDs}"></td>`;
+    const q = String(r.last_query||'').replace(/\s+/g,' ').trim();
+    const qShort = q.length>50?q.slice(0,50)+'…':q;
+    const hostCols = showHostCol
+      ? `<td style="${TDs}max-width:120px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(r.host_name||'')}">${escapeHtml(r.host_name||'—')}</td>
+         <td style="${TDs}max-width:100px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.login_name||'—')}</td>`
+      : '';
+    return `<tr style="cursor:default;">
+      ${killTd}
+      <td style="${TDs}font-weight:600;">${r.session_id}</td>
+      ${hostCols}
+      <td style="${TDs}">${fmtStatus(r.status)}</td>
+      <td style="${TDs}">${r.command||'—'}</td>
+      <td style="${TDs}font-variant-numeric:tabular-nums;">${(r.cpu_time||0).toLocaleString()}</td>
+      <td style="${TDs}font-variant-numeric:tabular-nums;">${(r.memory_kb||0).toLocaleString()} KB</td>
+      <td style="${TDs}">${r.wait_type||'—'}</td>
+      <td style="${TDs}max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(q)}">${escapeHtml(qShort)||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function killSessionFromDetail(connId, sessionId) {
+  const conn = conns[connId];
+  const proc = (conn?.tableData?.proc || []).find(r => r.session_id === sessionId);
+  const detail = proc ? `<br><span style="color:#94a3b8;font-size:12px;">${escapeHtml(proc.login_name||'')} @ ${escapeHtml(proc.host_name||'')}</span>` : '';
+  const ok = await showDialog({
+    title: `Kill Session ${sessionId}`,
+    message: `Terminate sleeping session <strong>${sessionId}</strong>?${detail}<br><br>This cannot be undone.`,
+    confirmText: 'Kill Session', type: 'danger',
+  });
+  if (!ok) return;
+  try {
+    const res  = await fetch(`/api/connections/${connId}/kill`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ sessionId }) });
+    const data = await res.json();
+    if (!res.ok) showDialog({ title:'Kill Failed', message:escapeHtml(data.error||'Unknown error'), confirmText:'OK', hideCancel:true, type:'danger' });
+    else refreshSessionDetail();
+  } catch (err) {
+    showDialog({ title:'Kill Failed', message:escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
+  }
+}
+
+async function killSession(connId, sessionId) {
+  const conn = conns[connId];
+  const proc = (conn?.tableData?.proc || []).find(r => r.session_id === sessionId);
+  const detail = proc ? `<br><span style="color:#94a3b8;font-size:12px;">${escapeHtml(proc.login_name||'')} @ ${escapeHtml(proc.host_name||'')}</span>` : '';
+  const ok = await showDialog({
+    title: `Kill Session ${sessionId}`,
+    message: `Terminate sleeping session <strong>${sessionId}</strong>?${detail}<br><br>This cannot be undone.`,
+    confirmText: 'Kill Session',
+    type: 'danger',
+  });
+  if (!ok) return;
+  try {
+    const res = await fetch(`/api/connections/${connId}/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) showDialog({ title:'Kill Failed', message: escapeHtml(data.error||'Unknown error'), confirmText:'OK', hideCancel:true, type:'danger' });
+  } catch (err) {
+    showDialog({ title:'Kill Failed', message: escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
+  }
+}
+
+function sortBy(connId, tableId, col) {
+  const conn = conns[connId]; if (!conn) return;
+  const st = conn.sortState[tableId];
+  st.dir = st.col===col?(st.dir==='desc'?'asc':'desc'):'desc';
+  st.col = col;
+  renderTable(connId, tableId);
+}
+
+function toggleSection(connId, sId) {
+  const body = document.getElementById(`body-${sId}-${connId}`);
+  const chev = document.getElementById(`chev-${sId}-${connId}`);
+  if (!body) return;
+  const nowCollapsed = body.classList.toggle('collapsed');
+  chev?.classList.toggle('open');
+  try { localStorage.setItem(`sqlmon-sec-${sId}`, nowCollapsed ? '1' : '0'); } catch {}
+}
+
+function restoreSectionStates(connId) {
+  const sections = ['dbsizes','proc','waits','fileio','recent','active','blocking','deadlocks'];
+  for (const sId of sections) {
+    let saved;
+    try { saved = localStorage.getItem(`sqlmon-sec-${sId}`); } catch {}
+    if (saved === '1') {
+      document.getElementById(`body-${sId}-${connId}`)?.classList.add('collapsed');
+      document.getElementById(`chev-${sId}-${connId}`)?.classList.remove('open');
+    }
+  }
+}
+
+// ─── Connect modal ────────────────────────────────────────────────────────────
+const SWATCH_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
+let currentAuthType = 'windows';
+let currentAppIntent = 'ReadWrite';
+let selectedColor = SWATCH_COLORS[0];
+
+
+// ─── Modal tabs & connection string ──────────────────────────────────────────
+let csEdited = false;
+
+function switchModalTab(tab) {
+  document.getElementById('mtab-login-body').classList.toggle('hidden', tab !== 'login');
+  document.getElementById('mtab-connstr-body').classList.toggle('hidden', tab !== 'connstr');
+  document.getElementById('mtab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('mtab-connstr').classList.toggle('active', tab === 'connstr');
+  if (tab === 'connstr') { csEdited = false; refreshConnStr(); }
+}
+
+function buildConnStr() {
+  const server   = document.getElementById('f-server').value.trim();
+  const db       = document.getElementById('f-db').value.trim();
+  const authType = document.getElementById('sql-auth-fields').classList.contains('hidden') ? 'windows' : 'sql';
+  const user     = document.getElementById('f-user')?.value.trim();
+  const pass     = document.getElementById('f-pass')?.value;
+  const encrypt  = document.getElementById('f-encrypt').value;
+  const trust    = document.getElementById('f-trust-cert').checked;
+  const hostname = document.getElementById('f-hostname').value.trim();
+  const intent   = currentAppIntent;
+
+  const encMap = { 'false': 'False', 'true': 'True', 'strict': 'Strict' };
+  const parts = [];
+  if (server)  parts.push(`Data Source=${server}`);
+  if (db && db !== 'master') parts.push(`Initial Catalog=${db}`);
+  if (authType === 'windows') {
+    parts.push('Integrated Security=True');
+  } else {
+    parts.push(`User ID=${user||''}`, `Password=${pass||''}`);
+  }
+  parts.push('Persist Security Info=False');
+  parts.push('Pooling=False');
+  parts.push('MultipleActiveResultSets=False');
+  parts.push(`Encrypt=${encMap[encrypt]||'False'}`);
+  parts.push(`TrustServerCertificate=${trust?'True':'False'}`);
+  if (hostname) parts.push(`HostNameInCertificate=${hostname}`);
+  if (intent === 'ReadOnly') parts.push('ApplicationIntent=ReadOnly');
+  parts.push('Application Name="SQL Activity Monitor"');
+  parts.push('Command Timeout=0');
+  return parts.join(';');
+}
+
+function refreshConnStr() {
+  if (csEdited) return;
+  const el = document.getElementById('cs-display');
+  if (el) el.value = buildConnStr();
+}
+
+function parseConnStrToForm(str) {
+  const pairs = {};
+  const re = /([^;=]+)=("(?:[^"]*)"|(?:[^;]*))/g;
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    pairs[m[1].trim().toLowerCase().replace(/\s+/g,' ')] = m[2].trim().replace(/^"|"$/g,'');
+  }
+  const server = pairs['data source']||pairs['server']||pairs['address']||pairs['network address'];
+  if (server) document.getElementById('f-server').value = server;
+  const db = pairs['initial catalog']||pairs['database'];
+  if (db) document.getElementById('f-db').value = db;
+  const intSec = pairs['integrated security']||pairs['trusted_connection'];
+  const uid = pairs['user id']||pairs['uid']||pairs['user'];
+  const pwd = pairs['password']||pairs['pwd'];
+  if (intSec && (intSec.toLowerCase()==='true'||intSec.toLowerCase()==='sspi')) {
+    setAuthType('windows');
+  } else if (uid) {
+    setAuthType('sql');
+    document.getElementById('f-user').value = uid;
+    if (pwd) document.getElementById('f-pass').value = pwd;
+  }
+  const enc = (pairs['encrypt']||'').toLowerCase();
+  let encVal = document.getElementById('f-encrypt').value;
+  if (enc==='false'||enc==='optional') encVal='false';
+  else if (enc==='true'||enc==='mandatory') encVal='true';
+  else if (enc==='strict') encVal='strict';
+  document.getElementById('f-encrypt').value = encVal;
+  onEncryptChange(encVal);
+  const trust = (pairs['trustservercertificate']||pairs['trust server certificate']||'').toLowerCase();
+  if (trust) document.getElementById('f-trust-cert').checked = trust==='true';
+  const hn = pairs['hostnameincertificate']||pairs['host name in certificate'];
+  if (hn) document.getElementById('f-hostname').value = hn;
+  const ai = (pairs['applicationintent']||pairs['application intent']||'').toLowerCase();
+  if (ai==='readonly') setAppIntent('ReadOnly');
+  else if (ai==='readwrite') setAppIntent('ReadWrite');
+}
+
+function copyConnStr() {
+  const txt = document.getElementById('cs-display').value;
+  navigator.clipboard.writeText(txt).catch(() => {});
+}
+
+async function pasteConnStr() {
+  try {
+    const txt = await navigator.clipboard.readText();
+    document.getElementById('cs-display').value = txt;
+    csEdited = true;
+  } catch { showDialog({ title:'Clipboard Blocked', message:'Paste manually into the text area.', confirmText:'OK', hideCancel:true, type:'info' }); }
+}
+
+function applyConnStr() {
+  const txt = document.getElementById('cs-display').value.trim();
+  if (!txt) return;
+  parseConnStrToForm(txt);
+  csEdited = false;
+  switchModalTab('login');
+}
+
+function resetConnStr() {
+  csEdited = false;
+  document.getElementById('cs-display').value = buildConnStr();
+}
+
+function onEncryptChange(val) {
+  // Strict mode: trust-cert irrelevant, show hostname field; Optional: hide hostname
+  const trustRow = document.getElementById('f-trust-cert').closest('label').parentElement;
+  const hostnameRow = document.getElementById('f-hostname-row');
+  if (val === 'strict') {
+    trustRow.style.opacity = '0.4';
+    trustRow.style.pointerEvents = 'none';
+    hostnameRow.classList.remove('hidden');
+  } else if (val === 'false') {
+    trustRow.style.opacity = '';
+    trustRow.style.pointerEvents = '';
+    hostnameRow.classList.add('hidden');
+  } else {
+    trustRow.style.opacity = '';
+    trustRow.style.pointerEvents = '';
+    hostnameRow.classList.remove('hidden');
+  }
+}
+
+function setAppIntent(type) {
+  currentAppIntent = type;
+  document.getElementById('intent-rw').classList.toggle('active', type==='ReadWrite');
+  document.getElementById('intent-ro').classList.toggle('active', type==='ReadOnly');
+}
+
+function selectColor(color, el) {
+  selectedColor = color;
+  document.querySelectorAll('#color-swatches .color-swatch').forEach(s => s.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+}
+
+function initColorSwatches() {
+  const container = document.getElementById('color-swatches');
+  if (!container) return;
+  const usedColors = new Set(Object.values(conns).map(c => c.color));
+  const nextColor = SWATCH_COLORS.find(c => !usedColors.has(c)) || SWATCH_COLORS[0];
+  selectedColor = nextColor;
+  container.innerHTML = SWATCH_COLORS.map(color =>
+    `<button type="button" class="color-swatch${color===nextColor?' selected':''}" style="background:${color};"
+             onclick="selectColor('${color}',this)" title="${color}"></button>`
+  ).join('') +
+  `<label class="color-swatch custom-color" title="Custom color" style="cursor:pointer;">
+     <input type="color" id="custom-color-input" style="opacity:0;position:absolute;width:1px;height:1px;"
+            onchange="selectColor(this.value,this.closest('.color-swatch'))"/>
+   </label>`;
+}
+
+function setAuthType(type) {
+  currentAuthType = type;
+  document.getElementById('auth-windows').classList.toggle('active', type==='windows');
+  document.getElementById('auth-sql').classList.toggle('active', type==='sql');
+  document.getElementById('sql-auth-fields').classList.toggle('hidden', type==='windows');
+}
+
+function showConnectModal() {
+  document.getElementById('connect-error').classList.add('hidden');
+  switchModalTab('login');
+  csEdited = false;
+  setAppIntent('ReadWrite');
+  initColorSwatches();
+  document.getElementById('connect-modal').classList.remove('hidden');
+  document.getElementById('f-server').focus();
+}
+
+function hideConnectModal() {
+  document.getElementById('connect-modal').classList.add('hidden');
+}
+
+document.getElementById('connect-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('connect-modal')) hideConnectModal();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') hideConnectModal();
+});
+
+async function handleConnect(e) {
+  e.preventDefault();
+  const btn    = document.getElementById('connect-btn');
+  const errEl  = document.getElementById('connect-error');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  errEl.classList.add('hidden');
+
+  const body = {
+    server:        document.getElementById('f-server').value.trim(),
+    label:         document.getElementById('f-label').value.trim(),
+    database:      document.getElementById('f-db').value.trim() || 'master',
+    authType:      currentAuthType,
+    user:          document.getElementById('f-user')?.value || '',
+    password:      document.getElementById('f-pass')?.value || '',
+    encrypt:               document.getElementById('f-encrypt').value,
+    trustServerCert:       document.getElementById('f-trust-cert').checked,
+    hostNameInCertificate: document.getElementById('f-hostname').value.trim() || undefined,
+    appIntent:             currentAppIntent,
+    color:         selectedColor,
+  };
+
+  try {
+    const res  = await fetch('/api/connect', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Connection failed.');
+    setupConnectionUI(data.id, data.label, data.server, data.color, data.appIntent);
+    hideConnectModal();
+    document.getElementById('connect-form').reset();
+    setAuthType('windows');
+    setAppIntent('ReadWrite');
+    onEncryptChange('false');
+  } catch(err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Connect';
+  }
+}
+
+// ─── Last-updated tick ────────────────────────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, conn] of Object.entries(conns)) {
+    const el = document.getElementById(`last-updated-${id}`);
+    if (!el) continue;
+    if (!conn._lastUpdate) { el.textContent = ''; continue; }
+    const sec = Math.round((now - conn._lastUpdate) / 1000);
+    let txt, color;
+    if (sec < 5)       { txt = 'Live';          color = '#22c55e'; }
+    else if (sec < 15) { txt = `${sec}s ago`;   color = '#f59e0b'; }
+    else if (sec < 60) { txt = `${sec}s ago`;   color = '#ef4444'; }
+    else               { txt = Math.floor(sec/60) + 'm ago'; color = '#ef4444'; }
+    el.textContent = txt;
+    el.style.color = color;
+  }
+}, 1000);
+
+// ─── Socket.io ────────────────────────────────────────────────────────────────
+const socket = io();
+
+socket.on('connect', () => {
+  document.getElementById('statusDot').className    = 'w-2 h-2 rounded-full dot-live animate-pulse';
+  document.getElementById('statusText').textContent  = Object.keys(conns).length ? 'Live' : 'Ready';
+});
+socket.on('disconnect', () => {
+  document.getElementById('statusDot').className    = 'w-2 h-2 rounded-full dot-dead';
+  document.getElementById('statusText').textContent  = 'Disconnected';
+});
+
+socket.on('metrics', (m) => {
+  const { connId, ...metrics } = m;
+  const conn = conns[connId]; if (!conn) return;
+
+  updateCharts(connId, metrics);
+  conn.tableData.proc      = metrics.processes       || [];
+  conn.tableData.waits     = metrics.resourceWaits   || [];
+  conn.tableData.fileio    = metrics.dataFileIO      || [];
+  conn.tableData.recent    = metrics.recentExpensive || [];
+  conn.tableData.active    = metrics.activeExpensive || [];
+  conn.tableData.blocking  = metrics.blocking        || [];
+  conn.tableData.deadlocks = metrics.deadlocks       || [];
+  conn.tableData.jobs      = metrics.jobs            || [];
+  for (const tId of ['proc','waits','fileio','recent','active','blocking','deadlocks']) renderTable(connId, tId);
+  renderDbSizes(connId, metrics.dbSizes || []);
+  renderConnectedSessions(connId, metrics.processes || []);
+  renderJobsCard(connId, metrics.jobs || []);
+  if (_sdConnId === connId) refreshSessionDetail();
+
+  if (conns[connId]) conns[connId]._lastUpdate = Date.now();
+
+  document.getElementById('statusDot').className    = 'w-2 h-2 rounded-full dot-live animate-pulse';
+  document.getElementById('statusText').textContent  = 'Live';
+});
+
+socket.on('poll_error', ({connId, message}) => {
+  const tab = document.getElementById(`tab-${connId}`);
+  if (tab) tab.querySelector('.dot-live')?.classList.replace('dot-live','dot-warn');
+  if (connId === activeConnId) {
+    document.getElementById('statusDot').className    = 'w-2 h-2 rounded-full dot-warn';
+    document.getElementById('statusText').textContent  = 'Poll error';
+  }
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+applyPalette(currentPalette);
+document.getElementById('palette-name-display').textContent = currentPalette;
+
+window.addEventListener('DOMContentLoaded', async () => {
+  initColorSwatches();
+  // Live connection string refresh on any Login field change
+  document.getElementById('connect-form').addEventListener('input',  () => { csEdited = false; refreshConnStr(); });
+  document.getElementById('connect-form').addEventListener('change', () => { csEdited = false; refreshConnStr(); });
+
+  // Pre-fill form from server config
+  try {
+    const cfg = await fetch('/api/config').then(r=>r.json());
+    if (cfg.defaultServer) document.getElementById('f-server').value = cfg.defaultServer;
+    if (cfg.defaultDb && cfg.defaultDb !== 'master') document.getElementById('f-db').value = cfg.defaultDb;
+    setAuthType(cfg.defaultAuthType || 'windows');
+  } catch {}
+
+  // Reconnect to any existing server connections
+  try {
+    const existing = await fetch('/api/connections').then(r=>r.json());
+    if (existing.length > 0) {
+      for (const { id, label, server, color, appIntent } of existing) setupConnectionUI(id, label, server, color, appIntent);
+    } else {
+      showConnectModal();
+    }
+  } catch {
+    showConnectModal();
+  }
+});
+/* ── Custom dialog ── */
+let _dialogResolve = null;
+
+function showDialog({ title, message, confirmText='Confirm', cancelText='Cancel', type='danger', hideCancel=false }) {
+  return new Promise(resolve => {
+    _dialogResolve = resolve;
+    const el = document.getElementById('custom-dialog');
+    document.getElementById('dialog-title').textContent   = title;
+    document.getElementById('dialog-message').innerHTML   = message;
+    document.getElementById('dialog-confirm').textContent = confirmText;
+    document.getElementById('dialog-cancel').textContent  = cancelText;
+    document.getElementById('dialog-cancel').classList.toggle('hidden', hideCancel);
+    const btn = document.getElementById('dialog-confirm');
+    btn.className = type === 'danger'
+      ? 'px-4 py-1.5 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer'
+      : 'px-4 py-1.5 text-sm font-semibold rounded-lg text-white transition-colors cursor-pointer';
+    if (type !== 'danger') btn.style.background = 'var(--header-bg)';
+    el.style.display = 'flex';
+  });
+}
+
+function _dialogClose(result) {
+  document.getElementById('custom-dialog').style.display = 'none';
+  if (_dialogResolve) { _dialogResolve(result); _dialogResolve = null; }
+}
+</script>
+
+<!-- ── SESSION DETAIL MODAL ─────────────────────────────────────────────── -->
+<div id="session-detail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:1500;padding:16px;">
+  <div style="background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.2);width:100%;max-width:860px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+    <!-- Header -->
+    <div style="padding:16px 20px 12px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <div style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--header-bg);">
+        <svg style="width:18px;height:18px;color:#fff;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      </div>
+      <div>
+        <div id="sd-title" style="font-size:14px;font-weight:700;color:#1e293b;"></div>
+        <div id="sd-subtitle" style="font-size:11px;color:#94a3b8;"></div>
+      </div>
+      <button onclick="closeSessionDetail()" style="margin-left:auto;color:#94a3b8;font-size:20px;line-height:1;padding:2px 6px;border-radius:6px;cursor:pointer;" onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">×</button>
+    </div>
+    <!-- Table -->
+    <div style="overflow:auto;flex:1;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead id="sd-thead">
+          <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;"></th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Session</th>
+            <th id="sd-th-host"  style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Host</th>
+            <th id="sd-th-login" style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Login</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Status</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Command</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">CPU (ms)</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Memory</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Wait Type</th>
+            <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Last Query</th>
+          </tr>
+        </thead>
+        <tbody id="sd-tbody">
+          <tr><td colspan="10" style="text-align:center;padding:20px;color:#94a3b8;font-style:italic;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Footer -->
+    <div style="padding:10px 20px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;flex-shrink:0;">
+      <button onclick="closeSessionDetail()" style="padding:6px 18px;font-size:13px;font-weight:600;border-radius:8px;border:1.5px solid #e2e8f0;background:#f8fafc;color:#475569;cursor:pointer;">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SQL AGENT JOBS MODAL ─────────────────────────────────────────────── -->
+<div id="jobs-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:1500;padding:16px;">
+  <div style="background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.2);width:100%;max-width:960px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+    <!-- Header -->
+    <div style="padding:16px 20px 12px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <div style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--header-bg);">
+        <svg style="width:18px;height:18px;color:#fff;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </div>
+      <div>
+        <div id="jobs-modal-title" style="font-size:14px;font-weight:700;color:#1e293b;"></div>
+        <div id="jobs-modal-subtitle" style="font-size:11px;color:#94a3b8;"></div>
+      </div>
+      <button onclick="closeJobsModal()" style="margin-left:auto;color:#94a3b8;font-size:20px;line-height:1;padding:2px 6px;border-radius:6px;cursor:pointer;"
+              onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">×</button>
+    </div>
+    <!-- Table -->
+    <div style="overflow:auto;flex:1;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;position:sticky;top:0;z-index:1;">
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Job Name</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Status</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Last Run</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Duration</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Next Run</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-modal-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8;font-style:italic;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Footer -->
+    <div style="padding:10px 20px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:11px;color:#94a3b8;">Updates every 2s · Running jobs highlighted green · Requires SQLAgentReaderRole in msdb</span>
+      <button onclick="closeJobsModal()" style="padding:6px 18px;font-size:13px;font-weight:600;border-radius:8px;border:1.5px solid #e2e8f0;background:#f8fafc;color:#475569;cursor:pointer;">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CUSTOM DIALOG ────────────────────────────────────────────────────── -->
+<div id="custom-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:2000;padding:16px;">
+  <div style="background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.2);width:100%;max-width:360px;overflow:hidden;">
+    <div style="padding:20px 20px 0;">
+      <div id="dialog-title" style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:8px;"></div>
+      <div id="dialog-message" style="font-size:13px;color:#475569;line-height:1.5;"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;">
+      <button id="dialog-cancel" onclick="_dialogClose(false)"
+              style="padding:6px 16px;font-size:13px;font-weight:600;border-radius:8px;border:1.5px solid #e2e8f0;background:#f8fafc;color:#475569;cursor:pointer;">Cancel</button>
+      <button id="dialog-confirm" onclick="_dialogClose(true)"></button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
