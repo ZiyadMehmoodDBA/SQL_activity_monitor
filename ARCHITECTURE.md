@@ -18,7 +18,7 @@ Single-page application (React) backed by a stateless Node.js + Express server. 
 - **Push, don't pull.** Server emits on every poll cycle; clients never request metrics.
 - **Read-only.** All SQL queries target DMVs (`sys.dm_*`, `sys.master_files`). No schema changes, no writes. Requires only `VIEW SERVER STATE`.
 - **Multi-connection.** Multiple SQL Server instances tracked simultaneously via connection-scoped state; only the active tab renders a Dashboard.
-- **Zero backend state.** Connections held in memory on the Node process; no persistence layer. Reconnect restores from `/api/connections`.
+- **Minimal backend state.** Connections held in memory on the Node process. The only server-side persistence is `data/db-size-history.json` for daily DB size snapshots. Reconnect restores connection list from `/api/connections`.
 - **Theme-first.** All colors flow through CSS custom properties. No hardcoded color values in component code.
 - **Render isolation.** Only the active dashboard renders. Inactive connections accumulate no chart ResizeObservers or animation timers.
 
@@ -112,8 +112,8 @@ Palettes (`src/lib/palettes.js`): named color schemes (Enterprise, Dark, Midnigh
 │  │ Jobs Panel · Sessions Panel (fixed height)   │   │
 │  ├──────────────────────────────────────────────┤   │
 │  │ CollapsibleSection × N (widget order driven) │   │
-│  │  DB Sizes · Processes · Resource Waits       │   │
-│  │  File I/O · Recent/Active Queries            │   │
+│  │  DB Sizes · DB Size Trends · Processes       │   │
+│  │  Resource Waits · File I/O · Recent/Active   │   │
 │  │  sp_WhoIsActive · Blocking · Deadlocks       │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
@@ -167,6 +167,7 @@ src/
 │   ├── SessionsPanel.jsx      # Connected sessions grouped by database
 │   ├── WhoIsActive.jsx        # sp_WhoIsActive results with expand-row
 │   ├── DbSizes.jsx            # Database size cards with fill bars
+│   ├── DbSizeTrend.jsx        # 10-day DB size trend chart + growth table
 │   ├── VirtualTable.jsx       # Generic virtualized sortable table
 │   ├── CollapsibleSection.jsx # Expandable/collapsible section wrapper
 │   ├── TabBar.jsx             # Connection tabs
@@ -189,6 +190,7 @@ Single `useReducer` store in `AppContext`. No external state library.
       id, label, server, color, appIntent,
       metrics: null | <latest poll payload>,
       history: { cpu[], wait[], io[], batch[], netMb[], compilations[] },  // ring buffer, max 60
+      diskHistory: { [volume_mount_point]: number[] },  // free_pct ring buffer, max 60
       lastUpdate: timestamp | null,
       jobsFilter, jobsSearch, jobsSort,
       sortState: { proc, waits, fileio, recent, active, blocking, deadlocks },
@@ -272,15 +274,17 @@ The 2-second poll cycle dispatches `UPDATE_METRICS` to `AppContext`, which creat
 ### Service Design
 
 ```
-server.js (monolith — 613 lines)
-├── Connection store        Map<id, { pool, label, server, handle, prevIO }>
+server.js
+├── DB history helpers      loadDbHistory(), saveDbHistory(), pruneDbHistory()
+│                           takeDbSizeSnapshot() — daily sys.master_files snapshot
+├── Connection store        Map<id, { pool, label, server, handle,
+│                                     snapshotHandle, prevIO, prevNet }>
 ├── buildConfig()           Normalize form input → mssql config object
-├── Q{}                     Named SQL query strings (cpu, overview, waits, fileio,
+├── Q{}                     Named SQL query strings (cpu, overview, ioSnapshot,
+│                           processes, resourceWaits, dataFileIO,
 │                           recentExpensive, activeExpensive, blocking, deadlocks,
-│                           jobs, serverPerf, dbSizes, whoIsActive)
-├── runPoll(id)             Promise.all(all queries) → emit 'metrics'
-├── startPolling(id)        setInterval(runPoll, POLL_MS) → store handle
-├── stopPolling(id)         clearInterval + pool close
+│                           serverPerf, jobs, dbSizes, diskDrives)
+├── collectMetrics()        Promise.all(14 queries) → extra OS drives merge → emit 'metrics'
 └── REST routes + Socket.io event handlers
 ```
 
@@ -295,6 +299,9 @@ POST   /api/connect          { server, database, authType, user, password,
 GET    /api/connections       → [{ id, label, server, color, appIntent }]
 
 DELETE /api/disconnect/:id    → { ok: true }
+
+GET    /api/connections/:id/db-size-history
+                             → { "YYYY-MM-DD": { "DbName": { data_bytes, log_bytes, total_bytes } } }
 ```
 
 **Socket.io events:**
@@ -354,11 +361,19 @@ Each client joins a Socket.io room named by `connId`. The server emits to `io.to
 | SQL Agent Jobs | `msdb.dbo.sysjobs` + `msdb.dbo.sysjobhistory` |
 | Database Sizes | `sys.master_files` + `FILEPROPERTY` |
 | sp_WhoIsActive | `sp_WhoIsActive` (if installed) |
-| **Drive Space** | `sys.dm_os_volume_stats` CROSS APPLY `sys.master_files` |
+| **Drive Space** | `sys.dm_os_volume_stats` CROSS APPLY `sys.master_files` + `sys.dm_os_enumerate_fixed_drives` / `xp_fixeddrives` |
+| **DB Size Trends** | `sys.master_files` (daily snapshot → `data/db-size-history.json`) |
 
 ### Drive Space Monitoring
 
-Drive space is collected on every poll cycle via `Q.diskDrives` — a single aggregated query that joins `sys.master_files` with `sys.dm_os_volume_stats`. One row per logical volume that hosts at least one SQL Server file. Volumes not referenced by any SQL Server file are not visible.
+Drive space is collected on every poll cycle via `Q.diskDrives` — a single aggregated query that joins `sys.master_files` with `sys.dm_os_volume_stats`. One row per logical volume that hosts at least one SQL Server file.
+
+**OS-drive visibility** — production servers often have all SQL Server files on non-OS drives (D:, E:, etc.), leaving C:\ out of the DMV results. After the main query, `collectMetrics` runs a supplemental query to include any drives not already covered:
+
+1. **SQL Server 2019+**: `sys.dm_os_enumerate_fixed_drives` — returns all fixed drives with full total + free bytes.
+2. **SQL Server 2012–2017 fallback**: `EXEC xp_fixeddrives` — returns free MB only; total size unavailable.
+
+Drives added via the fallback path have `total_bytes = 0`. `DriveCard` detects this and renders a compact **OS DRIVE** card (free space shown, no utilization bar or thresholds — there are no SQL files on the drive to protect).
 
 **Query result columns:**
 
@@ -416,6 +431,57 @@ ETA display: `< 1 hr` / `X hr` / `X days` / `> 1 week`.
 - Default sort: `free_pct` ascending (most critical drive first)
 - All per-drive cards memoized with `memo()` + `useMemo([history])` for trend — prevents sort/header re-renders from recomputing trend on all drives
 
+### Database Size Trend Monitoring
+
+Tracks how database sizes change over time using daily snapshots stored in a local JSON file (`data/db-size-history.json`). This is the only persistent state written by the server process (read-only against SQL Server is maintained — the snapshot query reads `sys.master_files` only).
+
+**Snapshot query** (`takeDbSizeSnapshot()` in `server.js`):
+```sql
+SELECT DB_NAME(mf.database_id) AS database_name,
+  SUM(CASE WHEN type_desc='ROWS' THEN size*8192 ELSE 0 END) AS data_bytes,
+  SUM(CASE WHEN type_desc='LOG'  THEN size*8192 ELSE 0 END) AS log_bytes,
+  SUM(size)*8192                                             AS total_bytes
+FROM sys.master_files mf
+WHERE mf.database_id > 0 AND mf.state = 0
+GROUP BY mf.database_id
+```
+
+**Capture schedule:**
+- Snapshot taken immediately on first connection to a server.
+- Hourly interval (`setInterval`, 1hr) checks if today's snapshot exists; takes it if not. This means exactly one snapshot per calendar day regardless of how long the connection has been open.
+- `snapshotHandle` stored on the `conn` object alongside `handle` and cleared in the disconnect handler.
+
+**Persistence (`data/db-size-history.json`):**
+```json
+{
+  "SERVER\\INSTANCE": {
+    "YYYY-MM-DD": {
+      "DatabaseName": { "data_bytes": 0, "log_bytes": 0, "total_bytes": 0 }
+    }
+  }
+}
+```
+- Keyed by `conn.server` (the raw server string from the connect form — stable across restarts, unlike the ephemeral `connId` UUID).
+- History pruned to last 10 calendar days on every write via `pruneDbHistory()`.
+- File created automatically in `data/` (created at startup if absent).
+
+**REST endpoint:**
+```
+GET /api/connections/:id/db-size-history
+→ { "YYYY-MM-DD": { "DbName": { data_bytes, log_bytes, total_bytes }, ... }, ... }
+```
+
+**`DbSizeTrend` component (`src/components/DbSizeTrend.jsx`):**
+- Fetches history on mount and re-fetches every 5 minutes.
+- Derives chart series in a single `useMemo([history])`: sorts databases by current total size, maps each to a GB-unit series array aligned on the sorted date axis.
+- **ApexCharts multi-series line chart** — one series per database (capped at 15 visible in chart), smooth curve, markers at each data point, date-formatted x-axis (`MM-DD`).
+- **Search filter** — input filters both the chart series and the growth table simultaneously.
+- **Growth table** — one row per database showing: Total Size, Data, Log, 10-Day Growth (signed, amber for growth / green for reclaim), Daily Avg, and a **SPIKE** badge when any single-day delta exceeds 3× the average daily growth for that database.
+- Shows graceful empty state when no history exists yet ("Snapshots captured daily — data will appear after the first day").
+
+**State shape addition (`AppContext`):**
+No reducer changes needed — `DbSizeTrend` manages its own local state via `useState`/`useEffect` and fetches directly from the REST endpoint. History data is not pushed via Socket.io since it is low-frequency (daily) and fetched on demand.
+
 ### Dashboard Features
 
 - **KPI Bar** — 6 cards: CPU, Waiting Tasks, Sessions, Database I/O, SQL Memory, Page Life Expectancy. Each card shows: current value, 30s delta trend, micro sparkline (last 20 readings), status badge (WARN/CRITICAL only), threshold tooltip on hover.
@@ -427,7 +493,8 @@ ETA display: `< 1 hr` / `X hr` / `X days` / `> 1 week`.
 - **Database Sizes** — per-database size cards with data/log fill bars and low-disk alerts.
 - **Collapsible Sections** — all tabular sections collapse/expand, state persisted per connection.
 - **Widget Sidebar** — toggle any widget on/off; drag sections to reorder. Layout persisted to `localStorage`.
-- **Drive Space Monitor** — one card per logical volume hosting SQL Server files. Utilization bar, Total/Used/Free sizes, type badge (SYSTEM/DATA/LOG/TEMPDB), trend arrow with %/hr rate and ETA-to-full forecast. Expandable detail with DB/file counts and threshold reference. Sort by % Free (default, most critical first), Drive letter, or Size. Header shows aggregate critical/warning badge counts. Threshold-based color coding with four severity levels (Healthy/Warning/Critical/Emergency).
+- **Drive Space Monitor** — one card per logical volume hosting SQL Server files, plus OS-only drives sourced from `sys.dm_os_enumerate_fixed_drives` or `xp_fixeddrives`. Utilization bar, Total/Used/Free sizes, type badge (SYSTEM/DATA/LOG/TEMPDB/OS DRIVE), trend arrow with %/hr rate and ETA-to-full forecast. Expandable detail with DB/file counts and threshold reference. Sort by % Free (default, most critical first), Drive letter, or Size. Header shows aggregate critical/warning badge counts. Threshold-based color coding with four severity levels (Healthy/Warning/Critical/Emergency). OS drives with no SQL files render a compact card showing free space only.
+- **Database Size Trends** — 10-day rolling history of database sizes. Daily snapshots persisted to `data/db-size-history.json` (one snapshot per calendar day, taken on connect and checked hourly). ApexCharts multi-series line chart with one series per database (up to 15 in chart), database search filter, and growth table showing Total/Data/Log sizes, 10-day growth, daily average, and spike detection.
 - **Multi-connection Tabs** — monitor multiple SQL Server instances simultaneously.
 - **Themes/Palettes** — Enterprise (default), Dark, Midnight, Forest, Ocean, Rose, Slate. CSS var swap, persisted.
 
@@ -496,3 +563,4 @@ A production-grade internal SQL Server observability tool that:
 - Requires **no database schema changes** and only `VIEW SERVER STATE` permission
 - Maintains **79+ passing tests** across all core logic, state management, and UI components
 - Proactively alerts operations teams to **drive space risks** before they cause SQL Server service disruption, with per-volume thresholds tuned to drive type (system/data/log/tempdb) and live trend forecasting
+- Surfaces **database size growth trends** over 10 days with daily average rates and spike detection, enabling capacity planning before storage is exhausted
