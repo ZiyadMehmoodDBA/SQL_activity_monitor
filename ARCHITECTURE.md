@@ -307,7 +307,7 @@ Server → Client:
   metrics     { connId, cpu_percent, waiting_tasks, db_io_mb, batch_requests,
                 processes[], resourceWaits[], fileIO[], recentExpensive[],
                 activeExpensive[], blocking[], deadlocks[], jobs[], dbSizes[],
-                whoIsActive[], serverPerf{} }
+                diskDrives[], whoIsActive[], serverPerf{} }
   poll_error  { connId, message }
 ```
 
@@ -354,6 +354,67 @@ Each client joins a Socket.io room named by `connId`. The server emits to `io.to
 | SQL Agent Jobs | `msdb.dbo.sysjobs` + `msdb.dbo.sysjobhistory` |
 | Database Sizes | `sys.master_files` + `FILEPROPERTY` |
 | sp_WhoIsActive | `sp_WhoIsActive` (if installed) |
+| **Drive Space** | `sys.dm_os_volume_stats` CROSS APPLY `sys.master_files` |
+
+### Drive Space Monitoring
+
+Drive space is collected on every poll cycle via `Q.diskDrives` — a single aggregated query that joins `sys.master_files` with `sys.dm_os_volume_stats`. One row per logical volume that hosts at least one SQL Server file. Volumes not referenced by any SQL Server file are not visible.
+
+**Query result columns:**
+
+| Column | Description |
+|---|---|
+| `volume_mount_point` | Drive letter / mount point (e.g. `C:\`, `D:\`) |
+| `total_bytes` / `available_bytes` / `used_bytes` | Raw sizes as FLOAT |
+| `used_pct` / `free_pct` | Pre-computed percentages (DECIMAL 5,1) |
+| `has_tempdb` | 1 if TempDB files live on this volume |
+| `has_log` | 1 if any transaction log files live here |
+| `has_data` | 1 if any data (ROWS) files live here (excluding TempDB) |
+| `database_count` | COUNT(DISTINCT database_id) on this volume |
+| `file_count` | Total SQL files on this volume |
+
+**Drive type classification** (`driveType()` in `thresholds.js`):
+
+```
+C:\ (or C:/)  → system
+has_tempdb     → tempdb
+has_log only   → log
+all others     → data
+```
+
+**Threshold engine** (`DRIVE_THRESHOLDS` in `thresholds.js`):
+
+All thresholds are **free-space percentages** (lower = more full = worse):
+
+| Drive type | Warning | Critical | Emergency |
+|---|---|---|---|
+| `system` C:\ | < 20% free | < 10% free | < 5% free |
+| `data` | < 15% free | < 8% free | — |
+| `log` | < 25% free | < 15% free | — |
+| `tempdb` | < 25% free | < 15% free | — |
+
+`driveStatusLevel(drive)` returns `{ color, label, level }`:
+- level 0 → `C_OK` (#16a34a) HEALTHY
+- level 1 → `C_WARN` (#ea580c) WARNING
+- level 2 → `C_CRIT` (#dc2626) CRITICAL
+- level 3 → `C_EMERGENCY` (#7f1d1d) EMERGENCY
+
+**History and trend (`diskHistory` in `AppContext`):**
+
+`diskHistory: { [volume_mount_point]: number[] }` — per-volume ring buffer of `free_pct` readings, capped at `HISTORY_MAX = 60` (2 minutes). Built in `UPDATE_METRICS` reducer alongside the existing metric history arrays.
+
+Trend calculation (module-level `calcTrend()` in `DriveMonitor.jsx`):
+1. Take last 30 readings (last 60s)
+2. `slope = (last − first) / count` — change in free_pct per reading
+3. `slopePerHour = slope × 1800` (1800 readings/hr at 2s intervals)
+4. ETA to full: `free_pct / |slope| × 2s` — only projected when slope < −0.005%/reading (suppresses noise)
+
+ETA display: `< 1 hr` / `X hr` / `X days` / `> 1 week`.
+
+**`DriveMonitor` component rendering rules:**
+- Renders `null` when `diskDrives` array is empty (safe for connections that fail the DMV query)
+- Default sort: `free_pct` ascending (most critical drive first)
+- All per-drive cards memoized with `memo()` + `useMemo([history])` for trend — prevents sort/header re-renders from recomputing trend on all drives
 
 ### Dashboard Features
 
@@ -366,6 +427,7 @@ Each client joins a Socket.io room named by `connId`. The server emits to `io.to
 - **Database Sizes** — per-database size cards with data/log fill bars and low-disk alerts.
 - **Collapsible Sections** — all tabular sections collapse/expand, state persisted per connection.
 - **Widget Sidebar** — toggle any widget on/off; drag sections to reorder. Layout persisted to `localStorage`.
+- **Drive Space Monitor** — one card per logical volume hosting SQL Server files. Utilization bar, Total/Used/Free sizes, type badge (SYSTEM/DATA/LOG/TEMPDB), trend arrow with %/hr rate and ETA-to-full forecast. Expandable detail with DB/file counts and threshold reference. Sort by % Free (default, most critical first), Drive letter, or Size. Header shows aggregate critical/warning badge counts. Threshold-based color coding with four severity levels (Healthy/Warning/Critical/Emergency).
 - **Multi-connection Tabs** — monitor multiple SQL Server instances simultaneously.
 - **Themes/Palettes** — Enterprise (default), Dark, Midnight, Forest, Ocean, Rose, Slate. CSS var swap, persisted.
 
@@ -433,3 +495,4 @@ A production-grade internal SQL Server observability tool that:
 - Allows operators to **customize the dashboard layout** (widget visibility, section order) with preferences persisted across sessions
 - Requires **no database schema changes** and only `VIEW SERVER STATE` permission
 - Maintains **79+ passing tests** across all core logic, state management, and UI components
+- Proactively alerts operations teams to **drive space risks** before they cause SQL Server service disruption, with per-volume thresholds tuned to drive type (system/data/log/tempdb) and live trend forecasting
