@@ -17,15 +17,18 @@ export function DialogTrigger({ children, asChild }) {
 export function DialogContent({ children, className, ...props }) {
   return (
     <RadixDialog.Portal>
-      <RadixDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in" />
+      <RadixDialog.Overlay className="fixed inset-0 z-50" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(2px)' }} />
       <RadixDialog.Content
         className={cn(
           'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
-          'w-full max-w-lg rounded-2xl shadow-2xl',
-          'bg-white border border-slate-200',
-          'focus:outline-none',
+          'w-full max-w-md rounded-2xl focus:outline-none',
           className
         )}
+        style={{
+          background: 'var(--card-bg)',
+          border: '1px solid var(--input-border)',
+          boxShadow: 'var(--card-shadow), 0 24px 48px rgba(0,0,0,.35)',
+        }}
         {...props}
       >
         {children}
@@ -36,7 +39,10 @@ export function DialogContent({ children, className, ...props }) {
 
 export function DialogHeader({ children, className }) {
   return (
-    <div className={cn('px-6 pt-6 pb-4 border-b border-slate-100', className)}>
+    <div
+      className={cn('px-6 pt-5 pb-4', className)}
+      style={{ borderBottom: '1px solid var(--divider)' }}
+    >
       {children}
     </div>
   )
@@ -52,7 +58,10 @@ export function DialogBody({ children, className }) {
 
 export function DialogTitle({ children, className }) {
   return (
-    <RadixDialog.Title className={cn('text-base font-bold text-slate-800', className)}>
+    <RadixDialog.Title
+      className={cn('text-base font-bold', className)}
+      style={{ color: 'var(--text-primary)' }}
+    >
       {children}
     </RadixDialog.Title>
   )

@@ -119,19 +119,27 @@ export default function Dashboard({ connId }) {
             <DialogTitle>Kill Sleeping Sessions</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <p className="text-sm text-slate-600 mb-5">
-              Kill <strong>{killDialog?.count}</strong> sleeping session{killDialog?.count !== 1 ? 's' : ''} on <strong>{conn.label}</strong>?
-              <br /><span className="text-xs text-slate-400 mt-1 block">This cannot be undone.</span>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+              Kill <strong style={{ color: 'var(--text-primary)' }}>{killDialog?.count}</strong> sleeping session{killDialog?.count !== 1 ? 's' : ''} on{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>{conn.label}</strong>?
             </p>
+            <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>This cannot be undone.</p>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
-                <button className="px-4 py-1.5 rounded-lg text-sm font-medium border" style={{ borderColor: 'var(--input-border)', color: 'var(--text-secondary)' }}>
+                <button
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  style={{
+                    background: 'var(--divider)',
+                    border: '1px solid var(--input-border)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
                   Cancel
                 </button>
               </DialogClose>
               <button
                 onClick={confirmKillSleeping}
-                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white"
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 style={{ background: '#dc2626' }}
               >
                 Kill Sessions
@@ -144,11 +152,28 @@ export default function Dashboard({ connId }) {
       {/* Kill sleeping — result toast */}
       {killResult && (
         <div
-          className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-xl flex items-center gap-3"
-          style={{ background: killResult.error ? '#fef2f2' : '#f0fdf4', color: killResult.error ? '#dc2626' : '#16a34a', border: `1px solid ${killResult.error ? '#fecaca' : '#bbf7d0'}` }}
+          className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-semibold shadow-2xl flex items-center gap-3"
+          style={{
+            background: 'var(--card-bg)',
+            border: `1px solid ${killResult.error ? 'rgba(220,38,38,.4)' : 'rgba(34,197,94,.3)'}`,
+            color: killResult.error ? '#f87171' : '#4ade80',
+            boxShadow: 'var(--card-shadow), 0 8px 24px rgba(0,0,0,.3)',
+          }}
         >
-          <span>{killResult.error ? `Error: ${killResult.error}` : `Killed ${killResult.killed} session(s)`}</span>
-          <button onClick={() => setKillResult(null)} className="ml-1 opacity-60 hover:opacity-100 text-lg leading-none">&times;</button>
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: killResult.error ? '#dc2626' : '#22c55e' }}
+          />
+          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+            {killResult.error ? `Error: ${killResult.error}` : `Killed ${killResult.killed} session(s)`}
+          </span>
+          <button
+            onClick={() => setKillResult(null)}
+            className="ml-2 opacity-50 hover:opacity-100 transition-opacity text-lg leading-none"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            &times;
+          </button>
         </div>
       )}
 
