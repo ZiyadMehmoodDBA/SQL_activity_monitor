@@ -129,6 +129,8 @@ export default memo(function DbSizeTrend({ connId }) {
       background: 'transparent',
       animations: { enabled: false },
       fontFamily: 'inherit',
+      redrawOnWindowResize: false,
+      redrawOnParentResize: false,
     },
     stroke:    { curve: 'smooth', width: 2 },
     colors:    COLORS,
@@ -212,14 +214,14 @@ export default memo(function DbSizeTrend({ connId }) {
         </span>
       </div>
 
-      {/* ── Line chart ── */}
+      {/* ── Line chart — fixed height container prevents ApexCharts from growing parent ── */}
       {filteredSeries.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ height: 320, minHeight: 320, maxHeight: 320, overflow: 'hidden', marginBottom: 20 }}>
           <ReactApexChart
             type="line"
             series={filteredSeries}
             options={chartOptions}
-            height={280}
+            height={320}
           />
         </div>
       )}

@@ -91,7 +91,9 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
   }), [color, yMax, title])
 
   return (
-    <div className="mc flex flex-col" style={{ padding: '18px 18px 12px' }}>
+    // overflow:hidden prevents ApexCharts from momentarily overflowing the card boundary,
+    // which would trigger a ResizeObserver → layout reflow → 1fr grid row growth loop.
+    <div className="mc flex flex-col" style={{ padding: '18px 18px 12px', overflow: 'hidden', minHeight: 290, maxHeight: 360 }}>
       {/* Label */}
       <div style={{
         fontSize: 10,

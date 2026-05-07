@@ -172,13 +172,13 @@ export default memo(function Dashboard({ connId }) {
       case 'db_sizes':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="dbsizes" title="Database Sizes &amp; Disk Usage">
-            <div className="p-5"><DbSizes data={m?.dbSizes} /></div>
+            <div style={{ padding: 20, maxHeight: 500, overflowY: 'auto' }}><DbSizes data={m?.dbSizes} /></div>
           </CollapsibleSection>
         )
       case 'db_size_trend':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="dbsizetrend" title="Database Size Trends (10-Day)">
-            <div className="p-5"><DbSizeTrend connId={connId} /></div>
+            <div style={{ padding: 20, maxHeight: 720, overflowY: 'auto' }}><DbSizeTrend connId={connId} /></div>
           </CollapsibleSection>
         )
       case 'processes':
@@ -343,13 +343,15 @@ export default memo(function Dashboard({ connId }) {
       {on('kpi_bar') && <KPIBar conn={conn} />}
 
       {/* Charts — chart instances are kept mounted to avoid ApexCharts
-           destroy/create cycles on toggle; display:none hides without unmounting */}
+           destroy/create cycles on toggle; display:none hides without unmounting.
+           overflow:hidden on both the grid and each cell prevents ApexCharts
+           ResizeObserver from accumulating height across refresh ticks. */}
       <div
         className="gap-6 mb-6"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', alignItems: 'start' }}
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', alignItems: 'start', overflow: 'hidden' }}
       >
         {allCharts.map(c => (
-          <div key={c.id} style={on(c.id) ? undefined : { display: 'none' }}>
+          <div key={c.id} style={on(c.id) ? { overflow: 'hidden' } : { display: 'none' }}>
             <ChartCard
               title={c.title}
               subtitle={c.subtitle}

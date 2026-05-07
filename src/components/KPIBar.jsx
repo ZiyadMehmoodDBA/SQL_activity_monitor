@@ -177,6 +177,9 @@ const KPICard = memo(function KPICard({
         display: 'flex',
         flexDirection: 'column',
         gap: 0,
+        overflow: 'hidden',
+        minHeight: 92,
+        maxHeight: 140,
       }}
     >
       {/* ── Row 1: label + status badge ── */}

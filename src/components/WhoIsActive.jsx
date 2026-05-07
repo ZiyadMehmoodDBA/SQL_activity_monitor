@@ -234,7 +234,7 @@ export default function WhoIsActive({ connId }) {
 
           {/* Table */}
           {filtered.length > 0 && (
-            <div className="overflow-x-auto">
+            <div style={{ overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
               <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>

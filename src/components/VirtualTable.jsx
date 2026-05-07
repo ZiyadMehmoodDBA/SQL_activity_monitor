@@ -87,7 +87,8 @@ export default function VirtualTable({
 
   if (!rows || rows.length === 0) {
     return (
-      <div className="overflow-x-auto">
+      // overflow:hidden — no scrollbar that could add height to the outer container
+      <div style={{ overflow: 'hidden' }}>
         <table className="w-full text-xs">
           <thead>
             <tr>
@@ -114,7 +115,9 @@ export default function VirtualTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    // overflow:hidden on outer wrapper prevents any scrollbar chrome from adding height.
+    // The inner scroll container (overflow:auto) handles all scrolling for both axes.
+    <div style={{ overflow: 'hidden' }}>
       <table className="w-full" style={{ tableLayout: 'fixed' }}>
         <thead>
           <tr>

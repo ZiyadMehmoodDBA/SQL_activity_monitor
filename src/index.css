@@ -83,6 +83,9 @@ body {
   overflow: hidden;
   opacity: 1;
   transition: grid-template-rows .28s ease, opacity .22s ease;
+  /* will-change keeps this on its own composite layer so grid row measurement
+     does not participate in the main document layout reflow cycle */
+  will-change: grid-template-rows;
 }
 .section-body.collapsed {
   grid-template-rows: 0fr;
@@ -91,6 +94,10 @@ body {
 .section-body-inner {
   min-height: 0;
   overflow: hidden;
+  /* contain:layout+style isolates internal layout/style from the outer grid.
+     This prevents ApexCharts ResizeObserver cascades and sub-pixel height changes
+     from propagating up through the section-body 1fr row measurement. */
+  contain: layout style;
 }
 .chevron { transition: transform .25s ease; }
 .chevron.open { transform: rotate(180deg); }

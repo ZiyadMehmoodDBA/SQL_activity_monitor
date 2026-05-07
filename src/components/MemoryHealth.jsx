@@ -50,7 +50,7 @@ export default memo(function MemoryHealth({ conn }) {
   const grantPct  = Math.min((grants / 10) * 100, 100)
 
   return (
-    <div className="mc p-6 mb-6" id={`memhealth-${id}`}>
+    <div className="mc p-6 mb-6" id={`memhealth-${id}`} style={{ overflow: 'hidden' }}>
       <div className="flex items-center gap-2 mb-4">
         <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
