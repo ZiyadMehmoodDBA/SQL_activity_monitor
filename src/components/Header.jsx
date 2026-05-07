@@ -2,6 +2,48 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES, applyPalette } from '../lib/palettes'
 
+function PaletteItem({ name, swatch, isActive, onClick }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors"
+      style={{
+        background: isActive
+          ? 'var(--section-hover)'
+          : hovered
+          ? 'var(--row-hover)'
+          : 'transparent',
+        color: 'var(--text-primary)',
+      }}
+    >
+      <span
+        className="w-3.5 h-3.5 rounded-full flex-shrink-0 transition-shadow"
+        style={{
+          background: swatch,
+          boxShadow: isActive
+            ? `0 0 0 2px var(--card-bg), 0 0 0 3.5px var(--text-muted)`
+            : 'none',
+        }}
+      />
+      <span style={{ fontWeight: isActive ? 600 : 400, color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+        {name}
+      </span>
+      {isActive && (
+        <svg
+          className="ml-auto flex-shrink-0"
+          style={{ width: 13, height: 13, color: 'var(--sort-active)' }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 export default function Header({ connected }) {
   const { state, dispatch } = useApp()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -58,25 +100,26 @@ export default function Header({ connected }) {
             </svg>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-9 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1 min-w-[190px]">
-              {Object.entries(PALETTES).map(([name, p]) => (
-                <button
-                  key={name}
-                  onClick={() => selectPalette(name)}
-                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors ${name === state.palette ? 'bg-slate-50' : ''}`}
-                >
-                  <span
-                    className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ring-2 ${name === state.palette ? 'ring-slate-400' : 'ring-transparent'}`}
-                    style={{ background: p.swatch }}
+            <div
+              className="absolute right-0 top-9 rounded-xl z-50 overflow-hidden py-1 min-w-[190px]"
+              style={{
+                background: 'var(--card-bg)',
+                border: '1px solid var(--input-border)',
+                boxShadow: 'var(--card-shadow)',
+              }}
+            >
+              {Object.entries(PALETTES).map(([name, p]) => {
+                const isActive = name === state.palette
+                return (
+                  <PaletteItem
+                    key={name}
+                    name={name}
+                    swatch={p.swatch}
+                    isActive={isActive}
+                    onClick={() => selectPalette(name)}
                   />
-                  <span className={`text-slate-700 ${name === state.palette ? 'font-semibold' : ''}`}>{name}</span>
-                  {name === state.palette && (
-                    <svg className="ml-auto w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
