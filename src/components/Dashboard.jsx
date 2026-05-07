@@ -11,6 +11,7 @@ import MemoryHealth from './MemoryHealth'
 import CollapsibleSection from './CollapsibleSection'
 import VirtualTable from './VirtualTable'
 import DbSizes from './DbSizes'
+import DbSizeTrend from './DbSizeTrend'
 import DriveMonitor from './DriveMonitor'
 import WhoIsActive from './WhoIsActive'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
@@ -168,6 +169,12 @@ export default memo(function Dashboard({ connId }) {
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="dbsizes" title="Database Sizes &amp; Disk Usage">
             <div className="p-5"><DbSizes data={m?.dbSizes} /></div>
+          </CollapsibleSection>
+        )
+      case 'db_size_trend':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="dbsizetrend" title="Database Size Trends (10-Day)">
+            <div className="p-5"><DbSizeTrend connId={connId} /></div>
           </CollapsibleSection>
         )
       case 'processes':

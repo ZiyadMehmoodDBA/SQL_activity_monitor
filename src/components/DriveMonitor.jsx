@@ -44,8 +44,9 @@ const TYPE_LABELS = { system: 'SYSTEM', data: 'DATA', log: 'LOG', tempdb: 'TEMPD
 const DriveCard = memo(function DriveCard({ drive, history }) {
   const [expanded, setExpanded] = useState(false)
 
-  const type   = driveType(drive)
-  const status = driveStatusLevel(drive)
+  const noSqlFiles = !drive.total_bytes   // OS drive with no SQL files
+  const type   = noSqlFiles ? 'system' : driveType(drive)
+  const status = noSqlFiles ? { color: C_OK, label: '', level: 0 } : driveStatusLevel(drive)
   const trend  = useMemo(() => calcTrend(history), [history])
 
   const mountPoint = drive.volume_mount_point || '?'
@@ -53,6 +54,30 @@ const DriveCard = memo(function DriveCard({ drive, history }) {
   const freePct    = drive.free_pct  ?? 0
   const barColor   = status.color
   const thresholds = DRIVE_THRESHOLDS[type] || DRIVE_THRESHOLDS.default
+
+  // ── Simplified card for OS drives with no SQL files ──
+  if (noSqlFiles) {
+    return (
+      <div className="mc" style={{ borderTop: `3px solid ${C_OK}`, padding: '14px 16px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', flexShrink: 0 }}>
+            {mountPoint}
+          </span>
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '.05em',
+            background: 'var(--divider)', color: 'var(--text-muted)',
+            padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+          }}>
+            OS DRIVE
+          </span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          <span style={{ fontWeight: 600, color: C_OK }}>{fmtBytes(drive.available_bytes)}</span>
+          <span style={{ color: 'var(--text-muted)' }}> free · no SQL files</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

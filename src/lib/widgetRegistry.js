@@ -18,6 +18,7 @@ export const WIDGET_REGISTRY = [
   { id: 'sessions_panel',     label: 'Connected Sessions',       group: 'panel',   category: 'Sessions',    defaultEnabled: true },
   // ── Sections (orderable) ────────────────────────────────
   { id: 'db_sizes',           label: 'Database Sizes',           group: 'section', category: 'Database',    defaultEnabled: true },
+  { id: 'db_size_trend',     label: 'Database Size Trends',     group: 'section', category: 'Database',    defaultEnabled: true },
   { id: 'processes',          label: 'Active Processes',         group: 'section', category: 'Sessions',    defaultEnabled: true },
   { id: 'resource_waits',     label: 'Resource Waits',           group: 'section', category: 'Waits & I/O', defaultEnabled: true },
   { id: 'file_io',            label: 'Data File I/O',            group: 'section', category: 'Waits & I/O', defaultEnabled: true },

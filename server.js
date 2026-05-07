@@ -19,6 +19,70 @@ const distDir = path.join(__dirname, 'dist')
 const publicDir = path.join(__dirname, 'public')
 app.use(express.static(fs.existsSync(distDir) ? distDir : publicDir));
 
+// ─── DB size history (file-based, daily snapshots) ───────────────────────────
+const DATA_DIR        = path.join(__dirname, 'data')
+const DB_HISTORY_FILE = path.join(DATA_DIR, 'db-size-history.json')
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+
+function loadDbHistory() {
+  try {
+    if (!fs.existsSync(DB_HISTORY_FILE)) return {}
+    return JSON.parse(fs.readFileSync(DB_HISTORY_FILE, 'utf8'))
+  } catch { return {} }
+}
+
+function saveDbHistory(history) {
+  try { fs.writeFileSync(DB_HISTORY_FILE, JSON.stringify(history), 'utf8') }
+  catch (e) { console.error('[db-history] save failed:', e.message) }
+}
+
+function pruneDbHistory(history) {
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 10)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  for (const serverKey of Object.keys(history)) {
+    for (const dateKey of Object.keys(history[serverKey])) {
+      if (dateKey < cutoffStr) delete history[serverKey][dateKey]
+    }
+    if (Object.keys(history[serverKey]).length === 0) delete history[serverKey]
+  }
+  return history
+}
+
+async function takeDbSizeSnapshot(pool, serverKey) {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const history = loadDbHistory()
+    if (!history[serverKey]) history[serverKey] = {}
+    if (history[serverKey][today]) return  // already captured today
+
+    const result = await pool.request().query(`
+      SELECT
+        DB_NAME(mf.database_id) AS database_name,
+        CAST(SUM(CASE WHEN mf.type_desc='ROWS' THEN CAST(mf.size AS BIGINT)*8192 ELSE 0 END) AS FLOAT) AS data_bytes,
+        CAST(SUM(CASE WHEN mf.type_desc='LOG'  THEN CAST(mf.size AS BIGINT)*8192 ELSE 0 END) AS FLOAT) AS log_bytes,
+        CAST(SUM(CAST(mf.size AS BIGINT))*8192 AS FLOAT) AS total_bytes
+      FROM sys.master_files mf
+      WHERE mf.database_id > 0 AND DB_NAME(mf.database_id) IS NOT NULL AND mf.state = 0
+      GROUP BY mf.database_id`)
+
+    const snapshot = {}
+    for (const row of result.recordset) {
+      snapshot[row.database_name] = {
+        data_bytes:  row.data_bytes,
+        log_bytes:   row.log_bytes,
+        total_bytes: row.total_bytes,
+      }
+    }
+    history[serverKey][today] = snapshot
+    pruneDbHistory(history)
+    saveDbHistory(history)
+    console.log(`[db-history] Snapshot: ${serverKey} ${today} (${result.recordset.length} databases)`)
+  } catch (err) {
+    console.error('[db-history] Snapshot failed:', err.message)
+  }
+}
+
 // ─── Connection store ─────────────────────────────────────────────────────────
 // Map<id, { pool, label, server, handle, prevIO }>
 const connections = new Map();
@@ -378,6 +442,57 @@ async function collectMetrics(pool, prevIO, prevNet) {
     req().query(Q.diskDrives).catch(err => { console.error('[diskDrives]', err.message); return { recordset: [] }; }),
   ]);
 
+  // ── Supplement diskDrives with OS drives that have no SQL files ───────────────
+  let diskDrives = diskR.recordset.slice()
+  try {
+    const sqlLetters = new Set(diskR.recordset.map(d =>
+      (d.volume_mount_point || '').charAt(0).toUpperCase()
+    ))
+    let extraRows = null
+    try {
+      // SQL Server 2019+: sys.dm_os_enumerate_fixed_drives has total + free
+      const r = await req().query(`
+        SELECT fixed_drive_path AS mp,
+               CAST(free_space_in_bytes  AS FLOAT) AS avail,
+               CAST(total_space_in_bytes AS FLOAT) AS total
+        FROM sys.dm_os_enumerate_fixed_drives WHERE drive_type_desc = N'FIXED'`)
+      extraRows = r.recordset.map(d => ({
+        letter: (d.mp || '').charAt(0).toUpperCase(),
+        mp:     (d.mp || '').replace(/\\*$/, '') + '\\',
+        avail:  d.avail || 0,
+        total:  d.total || 0,
+      }))
+    } catch {
+      // SQL 2012-2017 fallback: xp_fixeddrives (free MB only, no total)
+      try {
+        const r2 = await req().query('EXEC xp_fixeddrives')
+        extraRows = r2.recordset.map(d => ({
+          letter: (d.drive || '').toUpperCase(),
+          mp:     (d.drive || '').toUpperCase() + ':\\',
+          avail:  (d['MB free'] || 0) * 1048576,
+          total:  0,
+        }))
+      } catch {}
+    }
+    if (extraRows) {
+      for (const v of extraRows) {
+        if (sqlLetters.has(v.letter)) continue
+        const used = v.total > 0 ? v.total - v.avail : null
+        diskDrives.push({
+          volume_mount_point: v.mp,
+          total_bytes:        v.total,
+          available_bytes:    v.avail,
+          used_bytes:         used,
+          used_pct:           v.total > 0 ? parseFloat((100.0 * (v.total - v.avail) / v.total).toFixed(1)) : null,
+          free_pct:           v.total > 0 ? parseFloat((100.0 * v.avail / v.total).toFixed(1)) : null,
+          has_tempdb: 0, has_log: 0, has_data: 0, database_count: 0, file_count: 0,
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[diskDrives extra]', err.message)
+  }
+
   const cpu      = cpuR.recordset[0] || {};
   const ov       = ovR.recordset[0]  || {};
   const currBytes = ioR.recordset[0]?.total_bytes || 0;
@@ -437,7 +552,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
       memGrantsPending:  Math.round(perf.memory_grants_pending || 0),
     },
     jobs:            jobsR.recordset,
-    diskDrives:      diskR.recordset,
+    diskDrives:      diskDrives,
     _prevIO:  { bytes: currBytes,    time: now },
     _prevNet: { bytes: currNetBytes, time: now },
   };
@@ -497,6 +612,15 @@ app.post('/api/connect', async (req, res) => {
     await poll();
     conn.handle = setInterval(poll, POLL_MS);
 
+    // Take initial DB size snapshot and schedule daily re-check
+    const serverKey = server;
+    takeDbSizeSnapshot(pool, serverKey).catch(() => {});
+    conn.snapshotHandle = setInterval(() => {
+      const c = connections.get(id);
+      if (!c) { clearInterval(conn.snapshotHandle); return; }
+      takeDbSizeSnapshot(c.pool, serverKey).catch(() => {});
+    }, 60 * 60 * 1000);   // check hourly — actually snapshots once per day
+
     console.log(`+ Connected: ${displayLabel} [${id.slice(0,8)}] ${appIntent||'ReadWrite'}`);
     res.json({ id, label: displayLabel, server, database: database || 'master', color: color || '#3b82f6', appIntent: appIntent || 'ReadWrite' });
   } catch (err) {
@@ -508,6 +632,7 @@ app.delete('/api/disconnect/:id', async (req, res) => {
   const conn = connections.get(req.params.id);
   if (!conn) return res.status(404).json({ error: 'Not found.' });
   clearInterval(conn.handle);
+  clearInterval(conn.snapshotHandle);
   try { await conn.pool.close(); } catch {}
   connections.delete(req.params.id);
   console.log(`- Disconnected: ${conn.label} [${req.params.id.slice(0,8)}]`);
@@ -617,6 +742,14 @@ app.post('/api/connections/:id/jobs/stop', async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.get('/api/connections/:id/db-size-history', (req, res) => {
+  const conn = connections.get(req.params.id);
+  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const history = loadDbHistory();
+  const serverData = history[conn.server] || {};
+  res.json(serverData);
 });
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
