@@ -109,10 +109,14 @@ export default memo(function Dashboard({ connId }) {
     [state.widgetLayout]
   )
 
-  const enabledCharts = useMemo(
-    () => buildCharts(m, sp, conn, p).filter(c => on(c.id)),
+  // allCharts intentionally excludes layoutMap — chart instances must NEVER be
+  // destroyed/recreated on toggle (that creates new ApexCharts + ResizeObservers
+  // that accumulate across repeated toggle cycles).  Visibility is handled by a
+  // display:none wrapper div — the instance stays mounted, just hidden.
+  const allCharts = useMemo(
+    () => buildCharts(m, sp, conn, p),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [m, sp, conn.history, p, layoutMap]
+    [m, sp, conn.history, p]
   )
 
   const showJobs     = on('jobs_panel')
@@ -338,15 +342,15 @@ export default memo(function Dashboard({ connId }) {
       {/* KPI bar */}
       {on('kpi_bar') && <KPIBar conn={conn} />}
 
-      {/* Charts — fixed-column responsive grid, no auto-fill reflow */}
-      {enabledCharts.length > 0 && (
-        <div
-          className="gap-6 mb-6"
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', alignItems: 'start' }}
-        >
-          {enabledCharts.map(c => (
+      {/* Charts — chart instances are kept mounted to avoid ApexCharts
+           destroy/create cycles on toggle; display:none hides without unmounting */}
+      <div
+        className="gap-6 mb-6"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', alignItems: 'start' }}
+      >
+        {allCharts.map(c => (
+          <div key={c.id} style={on(c.id) ? undefined : { display: 'none' }}>
             <ChartCard
-              key={c.id}
               title={c.title}
               subtitle={c.subtitle}
               value={c.value}
@@ -354,9 +358,9 @@ export default memo(function Dashboard({ connId }) {
               color={c.color}
               yMax={c.yMax}
             />
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
 
       {/* Row 3: Jobs + Sessions */}
       {(showJobs || showSessions) && (

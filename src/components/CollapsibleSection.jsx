@@ -32,7 +32,7 @@ export default function CollapsibleSection({ connId, sectionId, title, children,
         {extra}
       </button>
       <div className={`section-body ${isCollapsed ? 'collapsed' : ''}`}>
-        {children}
+        <div className="section-body-inner">{children}</div>
       </div>
     </div>
   )

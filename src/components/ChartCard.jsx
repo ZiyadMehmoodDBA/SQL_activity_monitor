@@ -23,7 +23,9 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
       animations: {
         enabled: true,
         easing: 'linear',
-        dynamicAnimation: { enabled: true, speed: 300 },
+        // dynamicAnimation disabled: animating every 2s data update burns frame
+        // budget and causes transition conflicts during widget toggle cycles
+        dynamicAnimation: { enabled: false },
       },
       background: 'transparent',
       redrawOnWindowResize: false,

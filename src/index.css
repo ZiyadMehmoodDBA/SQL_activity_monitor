@@ -56,11 +56,13 @@ body {
   border-radius: var(--card-radius);
   border: none;
   box-shadow: var(--card-shadow);
-  transition: box-shadow .2s, transform .15s;
+  /* No transform on hover — translateY creates a composite layer that fires
+     ResizeObserver on neighbouring grid cells, accumulating over toggle cycles */
+  transition: box-shadow .2s;
+  overflow: hidden;   /* prevent content from breaking card boundary */
 }
 .mc:hover {
-  box-shadow: 0 6px 20px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.05);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.06);
 }
 .mc-click { cursor: pointer; }
 
@@ -72,13 +74,24 @@ body {
 .op-scroll::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-h); }
 
 /* ── Dashboard sections ── */
+/* grid-template-rows 1fr→0fr transition: animates to actual content height,
+   not an arbitrary 2000px cap that causes instant snaps and mis-measurements.
+   The inner wrapper (min-height:0) is required for the 0fr clamp to work. */
 .section-body {
-  transition: max-height .28s ease, opacity .22s ease;
+  display: grid;
+  grid-template-rows: 1fr;
   overflow: hidden;
-  max-height: 2000px;
   opacity: 1;
+  transition: grid-template-rows .28s ease, opacity .22s ease;
 }
-.section-body.collapsed { max-height: 0; opacity: 0; }
+.section-body.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.section-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
 .chevron { transition: transform .25s ease; }
 .chevron.open { transform: rotate(180deg); }
 .section-toggle { border-bottom: 1px solid var(--divider); }
@@ -110,7 +123,9 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
 .dot-idle { background: var(--dot-idle) !important; }
 
 /* ── Charts ── */
-/* Fixed dimensions — never allow flex-grow to push height beyond 224px */
+/* Fixed dimensions — never allow flex-grow to push height beyond 224px.
+   contain:layout isolates internal ApexCharts layout from the outer grid,
+   preventing chart redraws from triggering grid reflow. */
 .chart-wrap {
   position: relative;
   height: 224px;
@@ -118,6 +133,7 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
   max-height: 224px;
   flex-shrink: 0;
   overflow: hidden;
+  contain: layout;
 }
 
 /* ── Scrollbars ── */
