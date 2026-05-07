@@ -64,6 +64,13 @@ body {
 }
 .mc-click { cursor: pointer; }
 
+/* ── Operational panel scrollbar ── */
+.op-scroll { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.op-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+.op-scroll::-webkit-scrollbar-track { background: var(--scroll-track); }
+.op-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
+.op-scroll::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-h); }
+
 /* ── Dashboard sections ── */
 .section-body {
   transition: max-height .28s ease, opacity .22s ease;
