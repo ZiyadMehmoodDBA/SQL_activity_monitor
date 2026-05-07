@@ -11,6 +11,7 @@ import CollapsibleSection from './CollapsibleSection'
 import VirtualTable from './VirtualTable'
 import DbSizes from './DbSizes'
 import WhoIsActive from './WhoIsActive'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
 function useTimeSince(ts) {
   const [display, setDisplay] = useState('Waiting…')
@@ -32,6 +33,8 @@ export default function Dashboard({ connId }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
+  const [killDialog, setKillDialog] = useState(null) // { count } | null
+  const [killResult, setKillResult] = useState(null) // { killed, error } | null
 
   if (!conn) return null
 
@@ -63,17 +66,22 @@ export default function Dashboard({ connId }) {
     })
   }
 
-  async function killAllSleeping() {
+  function killAllSleeping() {
     const sleeping = (m?.processes || []).filter(r => String(r.status).toLowerCase() === 'sleeping')
-    if (sleeping.length === 0) { alert('No sleeping sessions to kill.'); return }
-    if (!window.confirm(`Kill ${sleeping.length} sleeping session(s) on ${conn.label}?`)) return
+    if (sleeping.length === 0) { setKillResult({ error: 'No sleeping sessions to kill.' }); return }
+    setKillResult(null)
+    setKillDialog({ count: sleeping.length })
+  }
+
+  async function confirmKillSleeping() {
+    setKillDialog(null)
     try {
       const res  = await fetch(`/api/connections/${connId}/kill-sleeping`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      alert(`Killed ${data.killed} session(s)`)
+      setKillResult({ killed: data.killed })
     } catch (err) {
-      alert('Kill failed: ' + err.message)
+      setKillResult({ error: err.message })
     }
   }
 
@@ -104,6 +112,46 @@ export default function Dashboard({ connId }) {
 
   return (
     <div>
+      {/* Kill sleeping — confirm dialog */}
+      <Dialog open={!!killDialog} onOpenChange={open => !open && setKillDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Kill Sleeping Sessions</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-slate-600 mb-5">
+              Kill <strong>{killDialog?.count}</strong> sleeping session{killDialog?.count !== 1 ? 's' : ''} on <strong>{conn.label}</strong>?
+              <br /><span className="text-xs text-slate-400 mt-1 block">This cannot be undone.</span>
+            </p>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <button className="px-4 py-1.5 rounded-lg text-sm font-medium border" style={{ borderColor: 'var(--input-border)', color: 'var(--text-secondary)' }}>
+                  Cancel
+                </button>
+              </DialogClose>
+              <button
+                onClick={confirmKillSleeping}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white"
+                style={{ background: '#dc2626' }}
+              >
+                Kill Sessions
+              </button>
+            </div>
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+
+      {/* Kill sleeping — result toast */}
+      {killResult && (
+        <div
+          className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-xl flex items-center gap-3"
+          style={{ background: killResult.error ? '#fef2f2' : '#f0fdf4', color: killResult.error ? '#dc2626' : '#16a34a', border: `1px solid ${killResult.error ? '#fecaca' : '#bbf7d0'}` }}
+        >
+          <span>{killResult.error ? `Error: ${killResult.error}` : `Killed ${killResult.killed} session(s)`}</span>
+          <button onClick={() => setKillResult(null)} className="ml-1 opacity-60 hover:opacity-100 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
       {/* Connection header */}
       <div className="flex items-center gap-3 px-0.5 mb-6 pb-4" style={{ borderBottom: '1px solid rgba(0,0,0,.07)' }}>
         <span className="w-2.5 h-2.5 rounded-full dot-live flex-shrink-0" />
