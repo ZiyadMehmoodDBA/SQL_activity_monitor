@@ -222,13 +222,41 @@ All localStorage writes happen inside the reducer (palette, widget layout, colla
 - `useCallback` for sort handlers, kill handlers.
 - History ring buffer capped at 60 readings (2 minutes) via `pushHist()`.
 
+### Performance Architecture
+
+The 2-second poll cycle dispatches `UPDATE_METRICS` to `AppContext`, which creates a new `connections` object on every tick. Without explicit memoization, this would cascade into a full re-render of the entire widget tree every 2 seconds — causing progressive main-thread saturation and eventual "Page Unresponsive" in the browser.
+
+**Memoization boundaries** prevent cascade re-renders:
+
+| Component | Memoization | Trigger condition |
+|---|---|---|
+| `ChartCard` | `memo()` | Re-renders only when `history`, `value`, `color`, or `yMax` changes |
+| `KPICard` | `memo()` | Re-renders only when `primary`, `statusVal`, `history`, or `subtitle` changes |
+| `MemoryHealth` | `memo()` | Re-renders only when `conn.metrics.serverPerf` values change |
+| `Dashboard` sortedData | 7× `useMemo` | Each table re-sorts only when its own source array or sort state changes |
+| `SessionsPanelInner` groups | `useMemo([processes, expandedGroups])` | Group rebuild skipped if processes unchanged |
+| `JobsPanelInner` filtered list | `useMemo([jobs, jobsFilter, jobsSearch, jobsSort])` | Filter+sort skipped if inputs unchanged |
+| `WhoIsActive` filtered rows | `useMemo([rows, search])` | Filter skipped if rows and search unchanged |
+| `SparklineMemo` (KPIBar) | `memo()` + `useMemo` for slice | `history.slice(-20)` only recomputed when history array changes |
+
+**`sortRows()` is module-level** — defined once, never recreated. Called by each `useMemo` via stable reference.
+
+**`rowStyle` callbacks are module-level constants** (`BLOCKING_ROW_STYLE`, `DEADLOCK_ROW_STYLE`) — not inline lambdas. Inline lambdas would create a new function reference per render, invalidating `VirtualTable`'s internal memoization.
+
+**Tooltip content is module-level** (`TT_CPU`, `TT_WAIT`, `TT_IO`, etc.) — inline array literals create new object references every render, forcing `KPICard memo()` to see changed props and re-render even when metric values are identical.
+
+**`useSocket` subscribe guard** — `AppContext` reducer returns a new `connections` object on every `UPDATE_METRICS`, so the `[connections]` effect dependency fires every 2 seconds. A `subscribedRef` (Set) gates the `socket.emit('subscribe')` call: it only emits for IDs not already in the Set, making the effect body O(1) on the hot path with no socket traffic.
+
+**Result:** on a 2s tick where only one metric changes, React re-renders only the components whose specific props changed. The full 17-widget cascade that caused "Page Unresponsive" after extended runtime is eliminated.
+
 ### Performance Goals
 
 - No chart resize accumulation across tab switches (chart instances destroyed with Dashboard).
 - No chart height feedback loop (fixed pixel height + `flex-shrink:0` + `overflow:hidden`).
 - Virtualized tables for all data-heavy sections via `@tanstack/react-virtual` (rows rendered = viewport rows only, regardless of result count).
-- Heavy sections (processes, queries) use `useMemo` on sorted/filtered data to avoid recompute on unrelated state changes.
+- Memoized sort/filter on all tabular data — recomputes only when source data or sort/filter state changes, not on every poll tick.
 - Sparklines rendered as inline SVG (`<polyline>` + `<circle>`), no chart library overhead.
+- Stable reference discipline: no inline array/object literals or lambda functions in JSX props of `memo()`-wrapped components.
 
 ---
 
