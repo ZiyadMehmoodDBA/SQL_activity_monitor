@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES } from '../lib/palettes'
 import { TABLE_COLS } from '../lib/tableCols'
@@ -15,6 +15,27 @@ import WhoIsActive from './WhoIsActive'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
+
+// ── Responsive grid column calculator ────────────────────────────────────────
+// Returns number of chart columns based on count of enabled charts + viewport width.
+// Updates on window resize — no deps beyond `count`.
+function useChartCols(count) {
+  const [cols, setCols] = useState(() => calcCols(count))
+  useEffect(() => {
+    const update = () => setCols(calcCols(count))
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [count])
+  return cols
+}
+
+function calcCols(count) {
+  if (count === 0) return 0
+  const w = window.innerWidth
+  const screenMax = w < 640 ? 1 : w < 1024 ? 2 : w < 1536 ? 3 : 4
+  return Math.min(count, screenMax)
+}
 
 function useTimeSince(ts) {
   const [display, setDisplay] = useState('Waiting…')
@@ -124,10 +145,12 @@ export default function Dashboard({ connId }) {
     { id: 'chart_compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,  yMax: null, history: conn.history.compilations },
   ]
   const enabledCharts = ALL_CHARTS.filter(c => on(c.id))
+  const chartCols     = useChartCols(enabledCharts.length)
 
   // Row 3 visibility
   const showJobs     = on('jobs_panel')
   const showSessions = on('sessions_panel')
+  const bothRow3     = showJobs && showSessions
 
   // ── Section renderer ─────────────────────────────────────────────────────
   function renderSection(id) {
@@ -299,36 +322,52 @@ export default function Dashboard({ connId }) {
       {/* KPI bar */}
       {on('kpi_bar') && <KPIBar conn={conn} />}
 
-      {/* Charts — responsive auto-fill grid */}
-      {enabledCharts.length > 0 && (
+      {/* Charts — dynamic column grid, collapses on disable, responsive to viewport */}
+      {enabledCharts.length > 0 && chartCols > 0 && (
         <div
-          className="gap-6 mb-6"
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+          className="mb-6"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${chartCols}, minmax(0, 1fr))`,
+            gap: '1.5rem',
+          }}
         >
           {enabledCharts.map(c => (
-            <ChartCard
-              key={c.id}
-              title={c.title}
-              subtitle={c.subtitle}
-              value={c.value}
-              history={c.history}
-              color={c.color}
-              yMax={c.yMax}
-            />
+            <div key={c.id} className="widget-enter">
+              <ChartCard
+                title={c.title}
+                subtitle={c.subtitle}
+                value={c.value}
+                history={c.history}
+                color={c.color}
+                yMax={c.yMax}
+              />
+            </div>
           ))}
         </div>
       )}
 
-      {/* Row 3: Jobs + Sessions — adapts when one is hidden */}
+      {/* Row 3: Jobs + Sessions — explicit col-span passed from Dashboard */}
       {(showJobs || showSessions) && (
-        <div className={`gap-6 mb-6 ${showJobs && showSessions ? 'grid grid-cols-12' : 'grid grid-cols-1'}`}>
-          {showJobs     && <JobsPanel     jobs={m?.jobs || []}       connId={connId} />}
-          {showSessions && <SessionsPanel processes={m?.processes || []} connId={connId} />}
+        <div
+          className="mb-6"
+          style={{
+            display: 'grid',
+            gap: '1.5rem',
+            gridTemplateColumns: bothRow3 ? '2fr 1fr' : '1fr',
+          }}
+        >
+          {showJobs     && <JobsPanel     jobs={m?.jobs || []}           connId={connId} className="widget-enter" />}
+          {showSessions && <SessionsPanel processes={m?.processes || []} connId={connId} className="widget-enter" />}
         </div>
       )}
 
       {/* Memory Health */}
-      {on('memory_health') && <MemoryHealth conn={conn} />}
+      {on('memory_health') && (
+        <div className="widget-enter">
+          <MemoryHealth conn={conn} />
+        </div>
+      )}
 
       {/* Collapsible sections — ordered and filtered by widgetLayout */}
       {orderedSections.length > 0 && (

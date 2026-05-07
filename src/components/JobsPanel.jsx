@@ -43,7 +43,7 @@ function sortJobs(jobs, sort) {
   })
 }
 
-export default function JobsPanel({ jobs, connId }) {
+export default function JobsPanel({ jobs, connId, className = '' }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const parentRef = useRef(null)
@@ -158,7 +158,7 @@ export default function JobsPanel({ jobs, connId }) {
   }
 
   return (
-    <div className="col-span-8 mc flex flex-col" style={{ minHeight: 280 }}>
+    <div className={`mc flex flex-col ${className}`} style={{ minHeight: 280 }}>
       {/* Header */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 flex-shrink-0">
         <span style={{ color: 'var(--val-batch)' }}>{GEAR_SVG}</span>
