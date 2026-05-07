@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { RefreshCw, ChevronDown, AlertCircle } from 'lucide-react'
 
 // Extract plain text from sp_WhoIsActive XML-wrapped columns
@@ -102,17 +102,17 @@ export default function WhoIsActive({ connId }) {
     })
   }
 
-  const filtered = rows.filter(r => {
-    if (!search) return true
+  const filtered = useMemo(() => {
+    if (!search) return rows
     const q = search.toLowerCase()
-    return (
+    return rows.filter(r =>
       String(r[C.login]   || '').toLowerCase().includes(q) ||
       String(r[C.host]    || '').toLowerCase().includes(q) ||
       String(r[C.db]      || '').toLowerCase().includes(q) ||
       String(r[C.wait]    || '').toLowerCase().includes(q) ||
       String(r[C.spid]    || '').includes(q)
     )
-  })
+  }, [rows, search])
 
   function rowHighlight(row) {
     const blocking = row[C.blocking]

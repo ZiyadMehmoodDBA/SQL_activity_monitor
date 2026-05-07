@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useApp } from '../context/AppContext'
@@ -80,29 +80,33 @@ function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef }
   const jobsSearch = conn?.jobsSearch || ''
   const jobsSort   = conn?.jobsSort   || { col: null, dir: 'asc' }
 
-  const counts = {
+  // Memoize counts — avoids 5 separate .filter() passes per render
+  const counts = useMemo(() => ({
     all:       (jobs || []).length,
     running:   (jobs || []).filter(j => j.status === 'Running').length,
     failed:    (jobs || []).filter(j => j.status === 'Failed').length,
     succeeded: (jobs || []).filter(j => j.status === 'Succeeded').length,
     idle:      (jobs || []).filter(j => ['Idle','Cancelled','Disabled'].includes(j.status)).length,
-  }
+  }), [jobs])
 
-  let filtered = jobs || []
-  if (jobsFilter !== 'all') {
-    filtered = filtered.filter(j => {
-      if (jobsFilter === 'running')   return j.status === 'Running'
-      if (jobsFilter === 'failed')    return j.status === 'Failed'
-      if (jobsFilter === 'succeeded') return j.status === 'Succeeded'
-      if (jobsFilter === 'idle')      return ['Idle','Cancelled','Disabled'].includes(j.status)
-      return true
-    })
-  }
-  if (jobsSearch) {
-    const q = jobsSearch.toLowerCase()
-    filtered = filtered.filter(j => (j.job_name || '').toLowerCase().includes(q))
-  }
-  filtered = sortJobs(filtered, jobsSort)
+  // Memoize filter+sort — only reruns when jobs data or filter/search/sort state changes
+  const filtered = useMemo(() => {
+    let list = jobs || []
+    if (jobsFilter !== 'all') {
+      list = list.filter(j => {
+        if (jobsFilter === 'running')   return j.status === 'Running'
+        if (jobsFilter === 'failed')    return j.status === 'Failed'
+        if (jobsFilter === 'succeeded') return j.status === 'Succeeded'
+        if (jobsFilter === 'idle')      return ['Idle','Cancelled','Disabled'].includes(j.status)
+        return true
+      })
+    }
+    if (jobsSearch) {
+      const q = jobsSearch.toLowerCase()
+      list = list.filter(j => (j.job_name || '').toLowerCase().includes(q))
+    }
+    return sortJobs(list, jobsSort)
+  }, [jobs, jobsFilter, jobsSearch, jobsSort])
 
   const virtualizer = useVirtualizer({
     count: filtered.length,

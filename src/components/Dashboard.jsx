@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, memo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES } from '../lib/palettes'
 import { TABLE_COLS } from '../lib/tableCols'
@@ -49,6 +49,23 @@ const SectionBadge = memo(function SectionBadge({ count, alertWhen }) {
     </span>
   )
 })
+
+// ── Generic sort (pure, module-level — never recreated) ───────────────────────
+function sortRows(rows, { col, dir }) {
+  if (!rows || rows.length === 0) return []
+  const mult = dir === 'desc' ? -1 : 1
+  return [...rows].sort((a, b) => {
+    const av = a[col], bv = b[col]
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    return typeof av === 'string' ? mult * av.localeCompare(bv) : mult * (av - bv)
+  })
+}
+
+// Stable rowStyle constants (no lambda recreated per render)
+const BLOCKING_ROW_STYLE  = (_, i) => i === 0 ? { background: '#fef2f2' } : undefined
+const DEADLOCK_ROW_STYLE  = () => ({ background: '#fff7ed' })
 
 // ── Chart config builder (pure, no side effects) ──────────────────────────────
 function buildCharts(m, sp, conn, p) {
@@ -106,24 +123,22 @@ export default memo(function Dashboard({ connId }) {
     dispatch({ type: 'SET_TABLE_SORT', connId, tableId, col, dir })
   }, [conn.sortState, connId, dispatch])
 
-  function sortedData(tableId) {
-    const rows = m?.[
-      tableId === 'proc'       ? 'processes'
-      : tableId === 'waits'    ? 'resourceWaits'
-      : tableId === 'fileio'   ? 'dataFileIO'
-      : tableId === 'recent'   ? 'recentExpensive'
-      : tableId === 'active'   ? 'activeExpensive'
-      : tableId === 'blocking' ? 'blocking'
-      : tableId === 'deadlocks'? 'deadlocks'
-      : tableId] || []
-    const { col, dir } = conn.sortState[tableId]
-    return [...rows].sort((a, b) => {
-      const av = a[col], bv = b[col], mult = dir === 'desc' ? -1 : 1
-      if (av == null && bv == null) return 0
-      if (av == null) return 1; if (bv == null) return -1
-      return typeof av === 'string' ? mult * av.localeCompare(bv) : mult * (av - bv)
-    })
-  }
+  // Memoized sorted datasets — each recomputes only when its source data or sort state changes,
+  // NOT on every 2s metrics update that doesn't affect that table.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedProc      = useMemo(() => sortRows(m?.processes,       conn.sortState.proc),      [m?.processes,       conn.sortState.proc])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedWaits     = useMemo(() => sortRows(m?.resourceWaits,   conn.sortState.waits),     [m?.resourceWaits,   conn.sortState.waits])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedFileio    = useMemo(() => sortRows(m?.dataFileIO,      conn.sortState.fileio),    [m?.dataFileIO,      conn.sortState.fileio])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedRecent    = useMemo(() => sortRows(m?.recentExpensive, conn.sortState.recent),    [m?.recentExpensive, conn.sortState.recent])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedActive    = useMemo(() => sortRows(m?.activeExpensive, conn.sortState.active),    [m?.activeExpensive, conn.sortState.active])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedBlocking  = useMemo(() => sortRows(m?.blocking,        conn.sortState.blocking),  [m?.blocking,        conn.sortState.blocking])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedDeadlocks = useMemo(() => sortRows(m?.deadlocks,       conn.sortState.deadlocks), [m?.deadlocks,       conn.sortState.deadlocks])
 
   // ── Kill sleeping ─────────────────────────────────────────────────────────
   const killAllSleeping = useCallback(() => {
@@ -173,7 +188,7 @@ export default memo(function Dashboard({ connId }) {
             }
           >
             <VirtualTable
-              rows={sortedData('proc')}
+              rows={sortedProc}
               columns={TABLE_COLS.proc}
               height={320}
               sortCol={conn.sortState.proc.col}
@@ -199,28 +214,28 @@ export default memo(function Dashboard({ connId }) {
       case 'resource_waits':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="waits" title="Resource Waits" badge={<SectionBadge count={m?.resourceWaits?.length || 0} />}>
-            <VirtualTable rows={sortedData('waits')} columns={TABLE_COLS.waits} height={280}
+            <VirtualTable rows={sortedWaits} columns={TABLE_COLS.waits} height={280}
               sortCol={conn.sortState.waits.col} sortDir={conn.sortState.waits.dir} onSort={col => handleSort('waits', col)} />
           </CollapsibleSection>
         )
       case 'file_io':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="fileio" title="Data File I/O" badge={<SectionBadge count={m?.dataFileIO?.length || 0} />}>
-            <VirtualTable rows={sortedData('fileio')} columns={TABLE_COLS.fileio} height={280}
+            <VirtualTable rows={sortedFileio} columns={TABLE_COLS.fileio} height={280}
               sortCol={conn.sortState.fileio.col} sortDir={conn.sortState.fileio.dir} onSort={col => handleSort('fileio', col)} />
           </CollapsibleSection>
         )
       case 'recent_expensive':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="recent" title="Recent Expensive Queries" badge={<SectionBadge count={m?.recentExpensive?.length || 0} />}>
-            <VirtualTable rows={sortedData('recent')} columns={TABLE_COLS.recent} height={280}
+            <VirtualTable rows={sortedRecent} columns={TABLE_COLS.recent} height={280}
               sortCol={conn.sortState.recent.col} sortDir={conn.sortState.recent.dir} onSort={col => handleSort('recent', col)} />
           </CollapsibleSection>
         )
       case 'active_expensive':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="active" title="Active Expensive Queries" badge={<SectionBadge count={m?.activeExpensive?.length || 0} />}>
-            <VirtualTable rows={sortedData('active')} columns={TABLE_COLS.active} height={280}
+            <VirtualTable rows={sortedActive} columns={TABLE_COLS.active} height={280}
               sortCol={conn.sortState.active.col} sortDir={conn.sortState.active.dir} onSort={col => handleSort('active', col)} />
           </CollapsibleSection>
         )
@@ -229,17 +244,17 @@ export default memo(function Dashboard({ connId }) {
       case 'blocking':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="blocking" title="Blocking Chains" badge={<SectionBadge count={m?.blocking?.length || 0} alertWhen />}>
-            <VirtualTable rows={sortedData('blocking')} columns={TABLE_COLS.blocking} height={240}
+            <VirtualTable rows={sortedBlocking} columns={TABLE_COLS.blocking} height={240}
               sortCol={conn.sortState.blocking.col} sortDir={conn.sortState.blocking.dir} onSort={col => handleSort('blocking', col)}
-              rowStyle={(_, i) => i === 0 ? { background: '#fef2f2' } : {}} />
+              rowStyle={BLOCKING_ROW_STYLE} />
           </CollapsibleSection>
         )
       case 'deadlocks':
         return (
           <CollapsibleSection key={id} connId={connId} sectionId="deadlocks" title="Deadlock History" badge={<SectionBadge count={m?.deadlocks?.length || 0} alertWhen />}>
-            <VirtualTable rows={sortedData('deadlocks')} columns={TABLE_COLS.deadlocks} height={240}
+            <VirtualTable rows={sortedDeadlocks} columns={TABLE_COLS.deadlocks} height={240}
               sortCol={conn.sortState.deadlocks.col} sortDir={conn.sortState.deadlocks.dir} onSort={col => handleSort('deadlocks', col)}
-              rowStyle={() => ({ background: '#fff7ed' })} />
+              rowStyle={DEADLOCK_ROW_STYLE} />
           </CollapsibleSection>
         )
       default:

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { memo } from 'react'
 import { metricStatusColor, C_OK } from '../lib/thresholds'
 
 function HealthBar({ label, value, displayVal, badgeText, color, pct }) {
@@ -25,7 +25,7 @@ function HealthBar({ label, value, displayVal, badgeText, color, pct }) {
   )
 }
 
-export default function MemoryHealth({ conn }) {
+export default memo(function MemoryHealth({ conn }) {
   const id = conn.id
   const sp = conn.metrics?.serverPerf || {}
 
@@ -87,4 +87,4 @@ export default function MemoryHealth({ conn }) {
       </div>
     </div>
   )
-}
+})

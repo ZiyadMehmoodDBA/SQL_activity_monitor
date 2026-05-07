@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, memo } from 'react'
 import ReactApexChart from 'react-apexcharts'
 
 // Compact axis label formatter (matches KPIBar's cFmt)
@@ -9,7 +9,7 @@ function axFmt(v) {
   return String(Math.round(v))
 }
 
-export default function ChartCard({ title, subtitle, value, unit, history, color, yMax }) {
+export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax }) {
   const series = useMemo(() => [{
     name: title,
     data: history && history.length > 0 ? history : Array(60).fill(null),
@@ -124,4 +124,4 @@ export default function ChartCard({ title, subtitle, value, unit, history, color
       </div>
     </div>
   )
-}
+})

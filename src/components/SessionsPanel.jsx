@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useApp } from '../context/AppContext'
@@ -85,36 +85,40 @@ function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, sc
   const conn = state.connections[connId]
   const expandedGroups = conn?.expandedSessionGroups || new Set()
 
-  // Build groups
-  const map = new Map()
-  for (const row of (processes || [])) {
-    const host  = row.host_name  || '(unknown)'
-    const login = row.login_name || '(unknown)'
-    const key   = `${login}||${host}`
-    if (!map.has(key)) {
-      map.set(key, { host, login, count: 0, totalCpu: 0, statuses: new Set(), isBlocked: false, sessions: [] })
+  // Memoize group building — only reruns when processes array or expanded set changes,
+  // not on every 2s metrics update that doesn't affect sessions.
+  const { groups, flatRows } = useMemo(() => {
+    const map = new Map()
+    for (const row of (processes || [])) {
+      const host  = row.host_name  || '(unknown)'
+      const login = row.login_name || '(unknown)'
+      const key   = `${login}||${host}`
+      if (!map.has(key)) {
+        map.set(key, { host, login, count: 0, totalCpu: 0, statuses: new Set(), isBlocked: false, sessions: [] })
+      }
+      const g = map.get(key)
+      g.count++
+      g.totalCpu += (row.cpu_time || 0)
+      g.statuses.add(String(row.status).toLowerCase())
+      if (row.blocking_session_id > 0) g.isBlocked = true
+      g.sessions.push(row)
     }
-    const g = map.get(key)
-    g.count++
-    g.totalCpu += (row.cpu_time || 0)
-    g.statuses.add(String(row.status).toLowerCase())
-    if (row.blocking_session_id > 0) g.isBlocked = true
-    g.sessions.push(row)
-  }
 
-  const groups = [...map.values()].sort((a, b) => b.totalCpu - a.totalCpu)
+    const groups = [...map.values()].sort((a, b) => b.totalCpu - a.totalCpu)
 
-  const flatRows = []
-  for (const g of groups) {
-    const key = `${g.login}||${g.host}`
-    flatRows.push({ type: 'group', group: g, key })
-    if (expandedGroups.has(key)) {
-      const sorted = [...g.sessions].sort((a, b) => (b.cpu_time || 0) - (a.cpu_time || 0))
-      for (const s of sorted) {
-        flatRows.push({ type: 'session', session: s, groupKey: key })
+    const flatRows = []
+    for (const g of groups) {
+      const key = `${g.login}||${g.host}`
+      flatRows.push({ type: 'group', group: g, key })
+      if (expandedGroups.has(key)) {
+        const sorted = [...g.sessions].sort((a, b) => (b.cpu_time || 0) - (a.cpu_time || 0))
+        for (const s of sorted) {
+          flatRows.push({ type: 'session', session: s, groupKey: key })
+        }
       }
     }
-  }
+    return { groups, flatRows }
+  }, [processes, expandedGroups])
 
   const virtualizer = useVirtualizer({
     count: flatRows.length,

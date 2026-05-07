@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo, memo } from 'react'
 import { metricStatusColor, METRIC_THRESHOLDS, C_WARN, C_CRIT } from '../lib/thresholds'
 
 // ── Compact number formatter ──────────────────────────────────────────────────
@@ -132,8 +132,14 @@ function Sparkline({ data, color, width = 54, height = 22 }) {
   )
 }
 
+// Stable wrapper: memo prevents Sparkline re-render when parent re-renders but history unchanged
+const SparklineMemo = memo(function SparklineMemo({ data, color }) {
+  const slice = useMemo(() => data.slice(-20), [data])
+  return <Sparkline data={slice} color={color} width={54} height={22} />
+})
+
 // ── KPI card ──────────────────────────────────────────────────────────────────
-function KPICard({
+const KPICard = memo(function KPICard({
   label,
   primary,       // formatted primary value string
   unit,          // unit shown after value (smaller font)
@@ -248,14 +254,9 @@ function KPICard({
           )}
         </div>
 
-        {/* Sparkline */}
+        {/* Sparkline — slice memoized so Sparkline receives stable reference */}
         {history && history.length >= 3 && (
-          <Sparkline
-            data={history.slice(-20)}
-            color={sparkColor}
-            width={54}
-            height={22}
-          />
+          <SparklineMemo data={history} color={sparkColor} />
         )}
       </div>
 
@@ -292,7 +293,15 @@ function KPICard({
       )}
     </div>
   )
-}
+})
+
+// ── Stable tooltip content (module-level — never recreated) ───────────────────
+const TT_CPU     = [{ text: 'CPU Utilization (SQL Server)' },         { text: 'Warn ≥ 70% · Critical ≥ 90%',          muted: true }]
+const TT_WAIT    = [{ text: 'Suspended + waiting requests' },         { text: 'Warn ≥ 10 · Critical ≥ 50',            muted: true }]
+const TT_SESS    = [{ text: 'Active connected sessions' },            { text: 'No threshold configured',               muted: true }]
+const TT_IO      = [{ text: 'Cumulative read + write MB/s' },         { text: 'No threshold configured',               muted: true }]
+const TT_MEM_FN  = (memPct, tgtGb) => [{ text: 'Committed vs target memory' }, { text: `${memPct}% utilized · Warn ≥ 90% · Crit ≥ 98%`, muted: true }]
+const TT_PLE     = [{ text: 'Page Life Expectancy (buffer pool)' },   { text: 'Warn < 1000s · Critical < 300s',        muted: true }]
 
 // ── KPI bar ───────────────────────────────────────────────────────────────────
 export default function KPIBar({ conn }) {
@@ -324,10 +333,7 @@ export default function KPIBar({ conn }) {
         deltaUnit="%"
         statusKey="cpu"
         statusVal={m?.cpu_percent}
-        tooltipLines={[
-          { text: 'CPU Utilization (SQL Server)' },
-          { text: 'Warn ≥ 70% · Critical ≥ 90%', muted: true },
-        ]}
+        tooltipLines={TT_CPU}
         onClick={() => scrollTo(`chart-cpu-${conn.id}`)}
       />
 
@@ -339,10 +345,7 @@ export default function KPIBar({ conn }) {
         statusKey="wait"
         statusVal={m?.waiting_tasks}
         subtitle="suspended / waiting"
-        tooltipLines={[
-          { text: 'Suspended + waiting requests' },
-          { text: 'Warn ≥ 10 · Critical ≥ 50', muted: true },
-        ]}
+        tooltipLines={TT_WAIT}
         onClick={() => scrollTo(`chart-wait-${conn.id}`)}
       />
 
@@ -351,10 +354,7 @@ export default function KPIBar({ conn }) {
         label="Sessions"
         primary={m ? cFmt(sessions) : null}
         subtitle="connected processes"
-        tooltipLines={[
-          { text: 'Active connected sessions' },
-          { text: 'No threshold configured', muted: true },
-        ]}
+        tooltipLines={TT_SESS}
         onClick={() => scrollTo(`sessions-panel-${conn.id}`)}
       />
 
@@ -366,14 +366,11 @@ export default function KPIBar({ conn }) {
         history={hist.io}
         deltaUnit="MB/s"
         subtitle="read + write throughput"
-        tooltipLines={[
-          { text: 'Cumulative read + write MB/s' },
-          { text: 'No threshold configured', muted: true },
-        ]}
+        tooltipLines={TT_IO}
         onClick={() => scrollTo(`chart-io-${conn.id}`)}
       />
 
-      {/* SQL Memory */}
+      {/* SQL Memory — tooltip includes live memPct so compute it once, stably */}
       <KPICard
         label="SQL Memory"
         primary={m ? memGb.toFixed(1) : null}
@@ -381,10 +378,7 @@ export default function KPIBar({ conn }) {
         statusKey="sqlmem"
         statusVal={memPct}
         subtitle={m ? `${memPct}% of ${tgtGb.toFixed(1)} GB target` : undefined}
-        tooltipLines={[
-          { text: 'Committed vs target memory' },
-          { text: `${memPct}% utilized · Warn ≥ 90% · Crit ≥ 98%`, muted: true },
-        ]}
+        tooltipLines={TT_MEM_FN(memPct, tgtGb)}
         onClick={() => scrollTo(`memhealth-${conn.id}`)}
       />
 
@@ -396,10 +390,7 @@ export default function KPIBar({ conn }) {
         statusKey="ple"
         statusVal={ple}
         subtitle="Warn < 1000s · Crit < 300s"
-        tooltipLines={[
-          { text: 'Page Life Expectancy (buffer pool)' },
-          { text: 'Warn < 1000s · Critical < 300s', muted: true },
-        ]}
+        tooltipLines={TT_PLE}
         onClick={() => scrollTo(`memhealth-${conn.id}`)}
       />
 
