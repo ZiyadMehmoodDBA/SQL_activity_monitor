@@ -50,9 +50,7 @@ const INTERVALS = [
 const SKIP_KEYS = new Set(['sql_text', 'query_plan', 'sql_command'])
 
 export default function WhoIsActive({ connId }) {
-  const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem(`wia-${connId}-collapsed`) === '1' } catch { return false }
-  })
+  const [collapsed, setCollapsed] = useState(true)
   const [rows,         setRows]         = useState([])
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState(null)

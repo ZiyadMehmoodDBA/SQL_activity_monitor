@@ -9,10 +9,15 @@ function pushHist(arr, val) {
   return next
 }
 
+// All section IDs that exist in Dashboard.jsx — always collapsed on page load/refresh
+const ALL_SECTIONS_COLLAPSED = new Set([
+  'proc', 'waits', 'fileio', 'recent', 'active',
+  'blocking', 'deadlocks', 'dbsizes', 'dbsizetrend',
+])
+
 function makeConn(conn) {
-  // Restore collapsed sections from localStorage
-  const stored = localStorage.getItem(`sqlmon-collapsed-${conn.id}`)
-  const collapsedSections = stored ? new Set(JSON.parse(stored)) : new Set()
+  // Always start fully collapsed — ignore any persisted state
+  const collapsedSections = new Set(ALL_SECTIONS_COLLAPSED)
   return {
     id: conn.id,
     label: conn.label,

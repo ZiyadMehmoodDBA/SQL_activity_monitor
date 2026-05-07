@@ -404,13 +404,18 @@ const Q = {
   diskDrives: `
     SELECT
       v.volume_mount_point,
-      CAST(v.total_bytes     AS FLOAT) AS total_bytes,
-      CAST(v.available_bytes AS FLOAT) AS available_bytes,
-      CAST(v.total_bytes - v.available_bytes AS FLOAT) AS used_bytes,
-      CAST(100.0 * (v.total_bytes - v.available_bytes)
-           / NULLIF(CAST(v.total_bytes AS FLOAT), 0) AS DECIMAL(5,1)) AS used_pct,
-      CAST(100.0 * v.available_bytes
-           / NULLIF(CAST(v.total_bytes AS FLOAT), 0) AS DECIMAL(5,1)) AS free_pct,
+      -- MAX/MIN aggregate over all files on this volume.
+      -- dm_os_volume_stats queries the OS live per file, so available_bytes can
+      -- differ by a few bytes between calls on the same volume.  Grouping by
+      -- total_bytes + available_bytes would produce duplicate rows for the same
+      -- physical volume; grouping by mount_point only gives exactly one row.
+      CAST(MAX(v.total_bytes)     AS FLOAT) AS total_bytes,
+      CAST(MIN(v.available_bytes) AS FLOAT) AS available_bytes,
+      CAST(MAX(v.total_bytes) - MIN(v.available_bytes) AS FLOAT) AS used_bytes,
+      CAST(100.0 * (MAX(v.total_bytes) - MIN(v.available_bytes))
+           / NULLIF(CAST(MAX(v.total_bytes) AS FLOAT), 0) AS DECIMAL(5,1)) AS used_pct,
+      CAST(100.0 * MIN(v.available_bytes)
+           / NULLIF(CAST(MAX(v.total_bytes) AS FLOAT), 0) AS DECIMAL(5,1)) AS free_pct,
       MAX(CASE WHEN mf.database_id = 2                              THEN 1 ELSE 0 END) AS has_tempdb,
       MAX(CASE WHEN mf.type_desc   = 'LOG'                          THEN 1 ELSE 0 END) AS has_log,
       MAX(CASE WHEN mf.type_desc   = 'ROWS' AND mf.database_id <> 2 THEN 1 ELSE 0 END) AS has_data,
@@ -419,7 +424,7 @@ const Q = {
     FROM sys.master_files mf
     CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.file_id) v
     WHERE mf.state = 0
-    GROUP BY v.volume_mount_point, v.total_bytes, v.available_bytes
+    GROUP BY v.volume_mount_point
     ORDER BY v.volume_mount_point`,
 };
 

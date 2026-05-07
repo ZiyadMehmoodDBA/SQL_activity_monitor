@@ -39,8 +39,8 @@ const GROUP_META = {
   system: { label: 'OS',     accent: '#64748b' },
 }
 
-// Canonical group order for rendering
-const GROUP_ORDER = ['tempdb', 'data', 'log', 'system']
+// OS (system) first so C:\ appears at top; then by operational risk profile
+const GROUP_ORDER = ['system', 'tempdb', 'data', 'log']
 
 function getDriveGroup(drive) {
   if (!drive.total_bytes) return 'system'
@@ -257,7 +257,7 @@ function DriveDetail({ drive, history, onClose }) {
 // Stable key prop ensures React preserves component instance (and collapsed state)
 // across the parent's 2s re-render cycle.
 function DriveGroup({ groupKey: gk, drives, diskHistory, selectedMount, onSelectMount }) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   const meta     = GROUP_META[gk] || GROUP_META.data
   const selDrive = selectedMount ? drives.find(d => d.volume_mount_point === selectedMount) : null
 
@@ -301,11 +301,13 @@ function DriveGroup({ groupKey: gk, drives, diskHistory, selectedMount, onSelect
           </span>
         )}
         <span style={{
-          marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)',
-          display: 'inline-block', transition: 'transform .2s',
-          transform: collapsed ? 'rotate(-90deg)' : 'none',
+          marginLeft: 'auto', width: 16, height: 16, borderRadius: 3,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 14, lineHeight: 1, fontWeight: 400,
+          color: 'var(--text-muted)', background: 'var(--divider)',
+          flexShrink: 0,
         }}>
-          ▾
+          {collapsed ? '+' : '−'}
         </span>
       </button>
 
@@ -358,7 +360,17 @@ export default memo(function DriveMonitor({ conn }) {
     const byGroup = {}
     let critCount = 0, warnCount = 0
 
-    for (const d of drives) {
+    // Deduplicate by volume_mount_point — server query fix prevents duplicates
+    // but guard here in case dm_os_volume_stats still returns split rows
+    const seen = new Set()
+    const deduped = drives.filter(d => {
+      const k = d.volume_mount_point
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+
+    for (const d of deduped) {
       const gk = getDriveGroup(d)
       if (!byGroup[gk]) byGroup[gk] = []
       byGroup[gk].push(d)
@@ -369,14 +381,11 @@ export default memo(function DriveMonitor({ conn }) {
       }
     }
 
-    // Within each group: severity descending, then free_pct ascending (least free first)
+    // Within each group: alphabetical by drive letter / mount path (C first)
     for (const gk of Object.keys(byGroup)) {
-      byGroup[gk].sort((a, b) => {
-        const la = a.total_bytes ? driveStatusLevel(a).level : 0
-        const lb = b.total_bytes ? driveStatusLevel(b).level : 0
-        if (la !== lb) return lb - la
-        return (a.free_pct ?? 100) - (b.free_pct ?? 100)
-      })
+      byGroup[gk].sort((a, b) =>
+        (a.volume_mount_point || '').localeCompare(b.volume_mount_point || '')
+      )
     }
 
     return { groups: byGroup, critCount, warnCount }
