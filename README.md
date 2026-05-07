@@ -17,6 +17,7 @@ A live, web-based SQL Server Activity Monitor — built to replicate and extend 
 - **SQL Agent Jobs** — live job status with filter, search, and sort
 - **Sessions Panel** — connected sessions grouped by database
 - **sp_WhoIsActive** — expandable rows with full SQL text (requires sp_WhoIsActive to be installed)
+- **Drive Space Monitor** — per-volume capacity cards with utilization bars, Total/Used/Free, trend %/hr, and ETA-to-full forecast. Four severity levels: Healthy / Warning / Critical / Emergency. Configurable thresholds per drive type (System C:\, Data, Log, TempDB).
 - **Database Sizes** — fill bars with low-disk alerts
 - **Blocking Chains & Deadlock History** — live chain detection and XEvent ring buffer deadlocks
 - **Widget Sidebar** — toggle any widget on/off, drag sections to reorder
@@ -102,6 +103,23 @@ All queries are read-only DMV queries. No schema changes, no stored procedures, 
 
 ---
 
+## Drive Space Thresholds
+
+Thresholds are applied per drive type, based on free-space percentage:
+
+| Drive Type | Warning | Critical | Emergency |
+|---|---|---|---|
+| System `C:\` | < 20% free | < 10% free | < 5% free |
+| Data (SQL data files) | < 15% free | < 8% free | — |
+| Log (transaction logs) | < 25% free | < 15% free | — |
+| TempDB | < 25% free | < 15% free | — |
+
+Drive type is auto-detected from the volume's SQL Server file content. Color coding: green (Healthy) → orange (Warning) → red (Critical) → deep red (Emergency).
+
+The monitor also shows a live trend: slope in %/hr and projected time until the drive is full, calculated from the last 60 seconds of free-space readings.
+
+---
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full documentation covering:
@@ -172,6 +190,7 @@ SQL Server DMVs
 | Deadlock History | `sys.dm_xe_session_ring_buffer_targets` |
 | SQL Agent Jobs | `msdb.dbo.sysjobs` + `msdb.dbo.sysjobhistory` |
 | Database Sizes | `sys.master_files` |
+| **Drive Space** (total/used/free/trend per volume) | `sys.dm_os_volume_stats` + `sys.master_files` |
 | sp_WhoIsActive | `sp_WhoIsActive` (optional) |
 
 ---
