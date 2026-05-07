@@ -6,10 +6,12 @@ import Header from './components/Header'
 import TabBar from './components/TabBar'
 import ConnectModal from './components/ConnectModal'
 import Dashboard from './components/Dashboard'
+import WidgetSidebar from './components/WidgetSidebar'
 
 export default function App() {
   const { state, dispatch } = useApp()
   const [showConnect, setShowConnect] = useState(false)
+  const [showWidgets, setShowWidgets] = useState(false)
   const socketRef = useSocket(dispatch, state.connections)
 
   // Apply palette on mount and when it changes
@@ -61,7 +63,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--body-bg)', color: 'var(--body-text)' }}>
-      <Header connected={isConnected} />
+      <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
+      <WidgetSidebar open={showWidgets} onClose={() => setShowWidgets(false)} />
 
       {connIds.length > 0 && (
         <TabBar

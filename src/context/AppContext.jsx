@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer } from 'react'
+import { loadLayout, saveLayout, defaultLayout } from '../lib/widgetRegistry'
 
 const HISTORY_MAX = 60
 
@@ -49,6 +50,7 @@ const initialState = {
   connections: {},
   activeConnId: null,
   palette: localStorage.getItem('palette') || 'Enterprise',
+  widgetLayout: loadLayout(),
 }
 
 function reducer(state, action) {
@@ -149,6 +151,32 @@ function reducer(state, action) {
           },
         },
       }
+    }
+    case 'TOGGLE_WIDGET': {
+      const next = state.widgetLayout.map(w =>
+        w.id === action.widgetId ? { ...w, enabled: !w.enabled } : w
+      )
+      saveLayout(next)
+      return { ...state, widgetLayout: next }
+    }
+    case 'REORDER_WIDGETS': {
+      // Replace the section portion of the layout with the new order
+      // action.sectionLayout: { id, enabled }[] (sections only, in new order)
+      const panels = state.widgetLayout.filter(w => {
+        const r = state.widgetLayout.find(x => x.id === w.id)
+        return action.sectionIds.indexOf(w.id) === -1
+      })
+      // Rebuild: panels first (in original order), then new section order
+      const panelItems = state.widgetLayout.filter(w => !action.sectionIds.includes(w.id))
+      const sectionItems = action.sectionLayout
+      const next = [...panelItems, ...sectionItems]
+      saveLayout(next)
+      return { ...state, widgetLayout: next }
+    }
+    case 'RESET_WIDGET_LAYOUT': {
+      const next = defaultLayout()
+      saveLayout(next)
+      return { ...state, widgetLayout: next }
     }
     default:
       return state

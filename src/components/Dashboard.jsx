@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES } from '../lib/palettes'
 import { TABLE_COLS } from '../lib/tableCols'
+import { WIDGET_REGISTRY } from '../lib/widgetRegistry'
 import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
 import JobsPanel from './JobsPanel'
@@ -12,6 +13,8 @@ import VirtualTable from './VirtualTable'
 import DbSizes from './DbSizes'
 import WhoIsActive from './WhoIsActive'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
+
+const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
 
 function useTimeSince(ts) {
   const [display, setDisplay] = useState('Waiting…')
@@ -33,8 +36,8 @@ export default function Dashboard({ connId }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
-  const [killDialog, setKillDialog] = useState(null) // { count } | null
-  const [killResult, setKillResult] = useState(null) // { killed, error } | null
+  const [killDialog, setKillDialog] = useState(null)
+  const [killResult, setKillResult] = useState(null)
 
   if (!conn) return null
 
@@ -42,6 +45,16 @@ export default function Dashboard({ connId }) {
   const sp = m?.serverPerf || {}
   const p  = PALETTES[state.palette] || PALETTES['Enterprise']
 
+  // ── Widget enabled check ─────────────────────────────────────────────────
+  const layoutMap = Object.fromEntries((state.widgetLayout || []).map(w => [w.id, w.enabled]))
+  function on(id) { return layoutMap[id] !== false }
+
+  // Ordered section list from widgetLayout
+  const orderedSections = (state.widgetLayout || [])
+    .filter(w => SECTION_IDS.includes(w.id) && w.enabled)
+    .map(w => w.id)
+
+  // ── Sort helpers ─────────────────────────────────────────────────────────
   function handleSort(tableId, col) {
     const current = conn.sortState[tableId]
     const dir = current.col === col ? (current.dir === 'desc' ? 'asc' : 'desc') : 'desc'
@@ -49,13 +62,14 @@ export default function Dashboard({ connId }) {
   }
 
   function sortedData(tableId) {
-    const rows = m?.[tableId === 'proc' ? 'processes'
-      : tableId === 'waits'     ? 'resourceWaits'
-      : tableId === 'fileio'    ? 'dataFileIO'
-      : tableId === 'recent'    ? 'recentExpensive'
-      : tableId === 'active'    ? 'activeExpensive'
-      : tableId === 'blocking'  ? 'blocking'
-      : tableId === 'deadlocks' ? 'deadlocks'
+    const rows = m?.[
+      tableId === 'proc'      ? 'processes'
+      : tableId === 'waits'   ? 'resourceWaits'
+      : tableId === 'fileio'  ? 'dataFileIO'
+      : tableId === 'recent'  ? 'recentExpensive'
+      : tableId === 'active'  ? 'activeExpensive'
+      : tableId === 'blocking'? 'blocking'
+      : tableId === 'deadlocks'?'deadlocks'
       : tableId] || []
     const { col, dir } = conn.sortState[tableId]
     return [...rows].sort((a, b) => {
@@ -66,6 +80,7 @@ export default function Dashboard({ connId }) {
     })
   }
 
+  // ── Kill sleeping ────────────────────────────────────────────────────────
   function killAllSleeping() {
     const sleeping = (m?.processes || []).filter(r => String(r.status).toLowerCase() === 'sleeping')
     if (sleeping.length === 0) { setKillResult({ error: 'No sleeping sessions to kill.' }); return }
@@ -85,6 +100,7 @@ export default function Dashboard({ connId }) {
     }
   }
 
+  // ── Section badge ────────────────────────────────────────────────────────
   function SectionBadge({ count, alertWhen }) {
     const isAlert = alertWhen && count > 0
     return (
@@ -98,17 +114,122 @@ export default function Dashboard({ connId }) {
     )
   }
 
-  const chartKeys   = ['cpu', 'wait', 'io', 'batch']
-  const chartTitles = ['% Processor Time', 'Waiting Tasks', 'Database I/O', 'Batch Requests/sec']
-  const chartSubs   = ['SQL CPU utilization', 'Suspended / waiting requests', 'MB/s read + write', 'Batches received per second']
-  const chartColors = [p.chartCpu, p.chartWait, p.chartIo, p.chartBatch]
-  const chartVals   = [
-    m ? m.cpu_percent + '%' : '--',
-    m ? m.waiting_tasks : '--',
-    m ? m.db_io_mb + ' MB/s' : '--',
-    m ? m.batch_requests?.toLocaleString() : '--',
+  // ── Chart config ─────────────────────────────────────────────────────────
+  const ALL_CHARTS = [
+    { id: 'chart_cpu',          title: '% Processor Time',    subtitle: 'SQL CPU utilization',          value: m ? m.cpu_percent + '%' : '--',                        color: p.chartCpu,  yMax: 100,  history: conn.history.cpu },
+    { id: 'chart_wait',         title: 'Waiting Tasks',        subtitle: 'Suspended / waiting requests', value: m ? m.waiting_tasks : '--',                            color: p.chartWait, yMax: null, history: conn.history.wait },
+    { id: 'chart_io',           title: 'Database I/O',         subtitle: 'MB/s read + write',            value: m ? m.db_io_mb + ' MB/s' : '--',                       color: p.chartIo,   yMax: null, history: conn.history.io },
+    { id: 'chart_batch',        title: 'Batch Requests/sec',   subtitle: 'Batches received per second',  value: m ? m.batch_requests?.toLocaleString() : '--',         color: p.chartBatch,yMax: null, history: conn.history.batch },
+    { id: 'chart_net',          title: 'Network I/O',          subtitle: 'MB/s SQL connections',         value: m ? (sp.netMbs || 0) + ' MB/s' : '--',                 color: p.chartIo,   yMax: null, history: conn.history.netMb },
+    { id: 'chart_compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,  yMax: null, history: conn.history.compilations },
   ]
-  const chartYMax = [100, null, null, null]
+  const enabledCharts = ALL_CHARTS.filter(c => on(c.id))
+
+  // Row 3 visibility
+  const showJobs     = on('jobs_panel')
+  const showSessions = on('sessions_panel')
+
+  // ── Section renderer ─────────────────────────────────────────────────────
+  function renderSection(id) {
+    switch (id) {
+      case 'db_sizes':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="dbsizes" title="Database Sizes &amp; Disk Usage">
+            <div className="p-5"><DbSizes data={m?.dbSizes} /></div>
+          </CollapsibleSection>
+        )
+      case 'processes':
+        return (
+          <CollapsibleSection
+            key={id}
+            connId={connId}
+            sectionId="proc"
+            title="Processes"
+            badge={<SectionBadge count={m?.processes?.length || 0} />}
+            extra={
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); killAllSleeping() }}
+                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors"
+              >
+                Kill All Sleeping
+              </button>
+            }
+          >
+            <VirtualTable
+              rows={sortedData('proc')}
+              columns={TABLE_COLS.proc}
+              height={320}
+              sortCol={conn.sortState.proc.col}
+              sortDir={conn.sortState.proc.dir}
+              onSort={col => handleSort('proc', col)}
+              extraCol
+              renderExtraCell={row => (
+                String(row.status || '').toLowerCase() === 'sleeping'
+                  ? <button className="kill-btn" onClick={() => {
+                      if (window.confirm(`Kill SPID ${row.session_id}?`)) {
+                        fetch(`/api/connections/${connId}/kill`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ sessionId: row.session_id }),
+                        })
+                      }
+                    }}>Kill</button>
+                  : null
+              )}
+            />
+          </CollapsibleSection>
+        )
+      case 'resource_waits':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="waits" title="Resource Waits" badge={<SectionBadge count={m?.resourceWaits?.length || 0} />}>
+            <VirtualTable rows={sortedData('waits')} columns={TABLE_COLS.waits} height={280}
+              sortCol={conn.sortState.waits.col} sortDir={conn.sortState.waits.dir} onSort={col => handleSort('waits', col)} />
+          </CollapsibleSection>
+        )
+      case 'file_io':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="fileio" title="Data File I/O" badge={<SectionBadge count={m?.dataFileIO?.length || 0} />}>
+            <VirtualTable rows={sortedData('fileio')} columns={TABLE_COLS.fileio} height={280}
+              sortCol={conn.sortState.fileio.col} sortDir={conn.sortState.fileio.dir} onSort={col => handleSort('fileio', col)} />
+          </CollapsibleSection>
+        )
+      case 'recent_expensive':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="recent" title="Recent Expensive Queries" badge={<SectionBadge count={m?.recentExpensive?.length || 0} />}>
+            <VirtualTable rows={sortedData('recent')} columns={TABLE_COLS.recent} height={280}
+              sortCol={conn.sortState.recent.col} sortDir={conn.sortState.recent.dir} onSort={col => handleSort('recent', col)} />
+          </CollapsibleSection>
+        )
+      case 'active_expensive':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="active" title="Active Expensive Queries" badge={<SectionBadge count={m?.activeExpensive?.length || 0} />}>
+            <VirtualTable rows={sortedData('active')} columns={TABLE_COLS.active} height={280}
+              sortCol={conn.sortState.active.col} sortDir={conn.sortState.active.dir} onSort={col => handleSort('active', col)} />
+          </CollapsibleSection>
+        )
+      case 'who_is_active':
+        return <WhoIsActive key={id} connId={connId} />
+      case 'blocking':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="blocking" title="Blocking Chains" badge={<SectionBadge count={m?.blocking?.length || 0} alertWhen />}>
+            <VirtualTable rows={sortedData('blocking')} columns={TABLE_COLS.blocking} height={240}
+              sortCol={conn.sortState.blocking.col} sortDir={conn.sortState.blocking.dir} onSort={col => handleSort('blocking', col)}
+              rowStyle={(_, i) => i === 0 ? { background: '#fef2f2' } : {}} />
+          </CollapsibleSection>
+        )
+      case 'deadlocks':
+        return (
+          <CollapsibleSection key={id} connId={connId} sectionId="deadlocks" title="Deadlock History" badge={<SectionBadge count={m?.deadlocks?.length || 0} alertWhen />}>
+            <VirtualTable rows={sortedData('deadlocks')} columns={TABLE_COLS.deadlocks} height={240}
+              sortCol={conn.sortState.deadlocks.col} sortDir={conn.sortState.deadlocks.dir} onSort={col => handleSort('deadlocks', col)}
+              rowStyle={() => ({ background: '#fff7ed' })} />
+          </CollapsibleSection>
+        )
+      default:
+        return null
+    }
+  }
 
   return (
     <div>
@@ -128,11 +249,7 @@ export default function Dashboard({ connId }) {
               <DialogClose asChild>
                 <button
                   className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    background: 'var(--divider)',
-                    border: '1px solid var(--input-border)',
-                    color: 'var(--text-secondary)',
-                  }}
+                  style={{ background: 'var(--divider)', border: '1px solid var(--input-border)', color: 'var(--text-secondary)' }}
                 >
                   Cancel
                 </button>
@@ -156,22 +273,14 @@ export default function Dashboard({ connId }) {
           style={{
             background: 'var(--card-bg)',
             border: `1px solid ${killResult.error ? 'rgba(220,38,38,.4)' : 'rgba(34,197,94,.3)'}`,
-            color: killResult.error ? '#f87171' : '#4ade80',
             boxShadow: 'var(--card-shadow), 0 8px 24px rgba(0,0,0,.3)',
           }}
         >
-          <span
-            className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{ background: killResult.error ? '#dc2626' : '#22c55e' }}
-          />
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: killResult.error ? '#dc2626' : '#22c55e' }} />
           <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
             {killResult.error ? `Error: ${killResult.error}` : `Killed ${killResult.killed} session(s)`}
           </span>
-          <button
-            onClick={() => setKillResult(null)}
-            className="ml-2 opacity-50 hover:opacity-100 transition-opacity text-lg leading-none"
-            style={{ color: 'var(--text-muted)' }}
-          >
+          <button onClick={() => setKillResult(null)} className="ml-2 opacity-50 hover:opacity-100 transition-opacity text-lg leading-none" style={{ color: 'var(--text-muted)' }}>
             &times;
           </button>
         </div>
@@ -188,207 +297,45 @@ export default function Dashboard({ connId }) {
       </div>
 
       {/* KPI bar */}
-      <KPIBar conn={conn} />
+      {on('kpi_bar') && <KPIBar conn={conn} />}
 
-      {/* Row 1: 4 chart cards */}
-      <div className="grid grid-cols-4 gap-6 mb-6">
-        {chartKeys.map((k, i) => (
-          <div id={`chart-${k}-${connId}`} key={k}>
+      {/* Charts — responsive auto-fill grid */}
+      {enabledCharts.length > 0 && (
+        <div
+          className="gap-6 mb-6"
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+        >
+          {enabledCharts.map(c => (
             <ChartCard
-              title={chartTitles[i]}
-              subtitle={chartSubs[i]}
-              value={chartVals[i]}
-              history={conn.history[k]}
-              color={chartColors[i]}
-              yMax={chartYMax[i]}
+              key={c.id}
+              title={c.title}
+              subtitle={c.subtitle}
+              value={c.value}
+              history={c.history}
+              color={c.color}
+              yMax={c.yMax}
             />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* Row 2: Network + Compilations */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        <ChartCard
-          title="Network I/O"
-          subtitle="MB/s SQL connections"
-          value={m ? (sp.netMbs || 0) + ' MB/s' : '--'}
-          history={conn.history.netMb}
-          color={p.chartIo}
-        />
-        <ChartCard
-          title="Compilations/sec"
-          subtitle="SQL compilations per second"
-          value={m ? (sp.compilationsSec || 0).toLocaleString() : '--'}
-          history={conn.history.compilations}
-          color={p.chartCpu}
-        />
-      </div>
-
-      {/* Row 3: Jobs + Sessions */}
-      <div className="grid grid-cols-12 gap-6 mb-6">
-        <JobsPanel jobs={m?.jobs || []} connId={connId} />
-        <SessionsPanel processes={m?.processes || []} connId={connId} />
-      </div>
+      {/* Row 3: Jobs + Sessions — adapts when one is hidden */}
+      {(showJobs || showSessions) && (
+        <div className={`gap-6 mb-6 ${showJobs && showSessions ? 'grid grid-cols-12' : 'grid grid-cols-1'}`}>
+          {showJobs     && <JobsPanel     jobs={m?.jobs || []}       connId={connId} />}
+          {showSessions && <SessionsPanel processes={m?.processes || []} connId={connId} />}
+        </div>
+      )}
 
       {/* Memory Health */}
-      <MemoryHealth conn={conn} />
+      {on('memory_health') && <MemoryHealth conn={conn} />}
 
-      {/* Collapsible sections */}
-      <div className="space-y-6">
-        {/* DB Sizes */}
-        <CollapsibleSection connId={connId} sectionId="dbsizes" title="Database Sizes &amp; Disk Usage">
-          <div className="p-5">
-            <DbSizes data={m?.dbSizes} />
-          </div>
-        </CollapsibleSection>
-
-        {/* Processes */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="proc"
-          title="Processes"
-          badge={<SectionBadge count={m?.processes?.length || 0} />}
-          extra={
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); killAllSleeping() }}
-              className="text-xs font-semibold px-2.5 py-1 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors"
-            >
-              Kill All Sleeping
-            </button>
-          }
-        >
-          <VirtualTable
-            rows={sortedData('proc')}
-            columns={TABLE_COLS.proc}
-            height={320}
-            sortCol={conn.sortState.proc.col}
-            sortDir={conn.sortState.proc.dir}
-            onSort={col => handleSort('proc', col)}
-            extraCol
-            renderExtraCell={row => (
-              String(row.status || '').toLowerCase() === 'sleeping'
-                ? <button className="kill-btn" onClick={() => {
-                    if (window.confirm(`Kill SPID ${row.session_id}?`)) {
-                      fetch(`/api/connections/${connId}/kill`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionId: row.session_id }),
-                      })
-                    }
-                  }}>Kill</button>
-                : null
-            )}
-          />
-        </CollapsibleSection>
-
-        {/* Resource Waits */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="waits"
-          title="Resource Waits"
-          badge={<SectionBadge count={m?.resourceWaits?.length || 0} />}
-        >
-          <VirtualTable
-            rows={sortedData('waits')}
-            columns={TABLE_COLS.waits}
-            height={280}
-            sortCol={conn.sortState.waits.col}
-            sortDir={conn.sortState.waits.dir}
-            onSort={col => handleSort('waits', col)}
-          />
-        </CollapsibleSection>
-
-        {/* Data File I/O */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="fileio"
-          title="Data File I/O"
-          badge={<SectionBadge count={m?.dataFileIO?.length || 0} />}
-        >
-          <VirtualTable
-            rows={sortedData('fileio')}
-            columns={TABLE_COLS.fileio}
-            height={280}
-            sortCol={conn.sortState.fileio.col}
-            sortDir={conn.sortState.fileio.dir}
-            onSort={col => handleSort('fileio', col)}
-          />
-        </CollapsibleSection>
-
-        {/* Recent Expensive Queries */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="recent"
-          title="Recent Expensive Queries"
-          badge={<SectionBadge count={m?.recentExpensive?.length || 0} />}
-        >
-          <VirtualTable
-            rows={sortedData('recent')}
-            columns={TABLE_COLS.recent}
-            height={280}
-            sortCol={conn.sortState.recent.col}
-            sortDir={conn.sortState.recent.dir}
-            onSort={col => handleSort('recent', col)}
-          />
-        </CollapsibleSection>
-
-        {/* Active Expensive Queries */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="active"
-          title="Active Expensive Queries"
-          badge={<SectionBadge count={m?.activeExpensive?.length || 0} />}
-        >
-          <VirtualTable
-            rows={sortedData('active')}
-            columns={TABLE_COLS.active}
-            height={280}
-            sortCol={conn.sortState.active.col}
-            sortDir={conn.sortState.active.dir}
-            onSort={col => handleSort('active', col)}
-          />
-        </CollapsibleSection>
-
-        {/* sp_WhoIsActive */}
-        <WhoIsActive connId={connId} />
-
-        {/* Blocking Chains */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="blocking"
-          title="Blocking Chains"
-          badge={<SectionBadge count={m?.blocking?.length || 0} alertWhen />}
-        >
-          <VirtualTable
-            rows={sortedData('blocking')}
-            columns={TABLE_COLS.blocking}
-            height={240}
-            sortCol={conn.sortState.blocking.col}
-            sortDir={conn.sortState.blocking.dir}
-            onSort={col => handleSort('blocking', col)}
-            rowStyle={(_, i) => i === 0 ? { background: '#fef2f2' } : {}}
-          />
-        </CollapsibleSection>
-
-        {/* Deadlock History */}
-        <CollapsibleSection
-          connId={connId}
-          sectionId="deadlocks"
-          title="Deadlock History"
-          badge={<SectionBadge count={m?.deadlocks?.length || 0} alertWhen />}
-        >
-          <VirtualTable
-            rows={sortedData('deadlocks')}
-            columns={TABLE_COLS.deadlocks}
-            height={240}
-            sortCol={conn.sortState.deadlocks.col}
-            sortDir={conn.sortState.deadlocks.dir}
-            onSort={col => handleSort('deadlocks', col)}
-            rowStyle={() => ({ background: '#fff7ed' })}
-          />
-        </CollapsibleSection>
-      </div>
+      {/* Collapsible sections — ordered and filtered by widgetLayout */}
+      {orderedSections.length > 0 && (
+        <div className="space-y-6">
+          {orderedSections.map(id => renderSection(id))}
+        </div>
+      )}
     </div>
   )
 }

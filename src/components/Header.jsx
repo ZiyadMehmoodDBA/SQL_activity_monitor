@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES, applyPalette } from '../lib/palettes'
+import { LayoutDashboard } from 'lucide-react'
 
 function PaletteItem({ name, swatch, isActive, onClick }) {
   const [hovered, setHovered] = useState(false)
@@ -44,7 +45,7 @@ function PaletteItem({ name, swatch, isActive, onClick }) {
   )
 }
 
-export default function Header({ connected }) {
+export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }) {
   const { state, dispatch } = useApp()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
@@ -83,6 +84,20 @@ export default function Header({ connected }) {
             {connected ? 'Live' : 'Offline'}
           </span>
         </div>
+        {/* Widget sidebar toggle */}
+        <button
+          onClick={onToggleWidgets}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+          style={{
+            color: widgetSidebarOpen ? 'var(--header-bg)' : 'var(--header-icon)',
+            background: widgetSidebarOpen ? 'var(--header-icon)' : 'transparent',
+          }}
+          title="Manage widgets"
+        >
+          <LayoutDashboard size={14} />
+          <span>Widgets</span>
+        </button>
+
         {/* Palette picker */}
         <div className="relative flex-shrink-0" ref={menuRef}>
           <button
