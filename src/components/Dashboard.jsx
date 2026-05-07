@@ -11,6 +11,7 @@ import MemoryHealth from './MemoryHealth'
 import CollapsibleSection from './CollapsibleSection'
 import VirtualTable from './VirtualTable'
 import DbSizes from './DbSizes'
+import DriveMonitor from './DriveMonitor'
 import WhoIsActive from './WhoIsActive'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
@@ -360,6 +361,9 @@ export default memo(function Dashboard({ connId }) {
 
       {/* Memory Health */}
       {on('memory_health') && <MemoryHealth conn={conn} />}
+
+      {/* Drive Space Monitor */}
+      {on('drive_monitor') && <DriveMonitor conn={conn} />}
 
       {/* Collapsible sections — ordered and filtered by widgetLayout */}
       {orderedSections.length > 0 && (

@@ -13,6 +13,7 @@ export const WIDGET_REGISTRY = [
   { id: 'chart_net',          label: 'Network I/O',              group: 'panel',   category: 'Performance', defaultEnabled: true },
   { id: 'chart_compilations', label: 'Compilations/sec',         group: 'panel',   category: 'Performance', defaultEnabled: true },
   { id: 'memory_health',      label: 'Memory Health',            group: 'panel',   category: 'Memory',      defaultEnabled: true },
+  { id: 'drive_monitor',      label: 'Drive Space Monitor',      group: 'panel',   category: 'Storage',     defaultEnabled: true },
   { id: 'jobs_panel',         label: 'SQL Agent Jobs',           group: 'panel',   category: 'SQL Agent',   defaultEnabled: true },
   { id: 'sessions_panel',     label: 'Connected Sessions',       group: 'panel',   category: 'Sessions',    defaultEnabled: true },
   // ── Sections (orderable) ────────────────────────────────

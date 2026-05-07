@@ -29,6 +29,7 @@ function makeConn(conn) {
       compilations: [],
     },
     lastUpdate: null,
+    diskHistory: {},     // { 'C:\\': number[] } — free_pct ring buffer per volume
     jobsFilter: 'all',
     jobsSearch: '',
     jobsSort: { col: null, dir: 'asc' },
@@ -86,6 +87,12 @@ function reducer(state, action) {
         netMb:        pushHist(conn.history.netMb,        sp.netMbs || 0),
         compilations: pushHist(conn.history.compilations, sp.compilationsSec || 0),
       }
+      // Per-volume free_pct history for drive trend analysis
+      const newDiskHistory = { ...conn.diskHistory }
+      for (const d of (m.diskDrives || [])) {
+        const key = d.volume_mount_point
+        newDiskHistory[key] = pushHist(newDiskHistory[key] || [], d.free_pct ?? 0)
+      }
       return {
         ...state,
         connections: {
@@ -94,6 +101,7 @@ function reducer(state, action) {
             ...conn,
             metrics: m,
             history: newHistory,
+            diskHistory: newDiskHistory,
             lastUpdate: Date.now(),
           },
         },

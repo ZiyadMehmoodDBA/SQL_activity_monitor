@@ -335,11 +335,33 @@ const Q = {
       AND DB_NAME(mf.database_id) IS NOT NULL
     GROUP BY DB_NAME(mf.database_id)
     ORDER BY MIN(vs.volume_mount_point), allocated_bytes DESC`,
+
+  // ── Drive space monitoring (one row per logical volume hosting SQL files) ──
+  diskDrives: `
+    SELECT
+      v.volume_mount_point,
+      CAST(v.total_bytes     AS FLOAT) AS total_bytes,
+      CAST(v.available_bytes AS FLOAT) AS available_bytes,
+      CAST(v.total_bytes - v.available_bytes AS FLOAT) AS used_bytes,
+      CAST(100.0 * (v.total_bytes - v.available_bytes)
+           / NULLIF(CAST(v.total_bytes AS FLOAT), 0) AS DECIMAL(5,1)) AS used_pct,
+      CAST(100.0 * v.available_bytes
+           / NULLIF(CAST(v.total_bytes AS FLOAT), 0) AS DECIMAL(5,1)) AS free_pct,
+      MAX(CASE WHEN mf.database_id = 2                              THEN 1 ELSE 0 END) AS has_tempdb,
+      MAX(CASE WHEN mf.type_desc   = 'LOG'                          THEN 1 ELSE 0 END) AS has_log,
+      MAX(CASE WHEN mf.type_desc   = 'ROWS' AND mf.database_id <> 2 THEN 1 ELSE 0 END) AS has_data,
+      COUNT(DISTINCT mf.database_id) AS database_count,
+      COUNT(mf.file_id)              AS file_count
+    FROM sys.master_files mf
+    CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.file_id) v
+    WHERE mf.state = 0
+    GROUP BY v.volume_mount_point, v.total_bytes, v.available_bytes
+    ORDER BY v.volume_mount_point`,
 };
 
 async function collectMetrics(pool, prevIO, prevNet) {
   const req = () => pool.request();
-  const [cpuR, ovR, ioR, procR, waitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR] = await Promise.all([
+  const [cpuR, ovR, ioR, procR, waitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR] = await Promise.all([
     req().query(Q.cpu),
     req().query(Q.overview),
     req().query(Q.ioSnapshot),
@@ -353,6 +375,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     req().query(Q.deadlocks).catch(() => ({ recordset: [] })),
     req().query(Q.serverPerf).catch(err => { console.error('[serverPerf]', err.message); return { recordset: [] }; }),
     req().query(Q.jobs).catch(err => { console.error('[jobs]', err.message); return { recordset: [] }; }),
+    req().query(Q.diskDrives).catch(err => { console.error('[diskDrives]', err.message); return { recordset: [] }; }),
   ]);
 
   const cpu      = cpuR.recordset[0] || {};
@@ -414,6 +437,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
       memGrantsPending:  Math.round(perf.memory_grants_pending || 0),
     },
     jobs:            jobsR.recordset,
+    diskDrives:      diskR.recordset,
     _prevIO:  { bytes: currBytes,    time: now },
     _prevNet: { bytes: currNetBytes, time: now },
   };
