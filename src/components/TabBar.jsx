@@ -9,10 +9,10 @@ export default function TabBar({ onAddConnection, onRemoveConnection }) {
 
   return (
     <div
-      className="flex items-end gap-0.5 px-4 overflow-x-auto"
+      className="flex items-end gap-0.5 px-4 overflow-x-auto op-scroll"
       style={{
         background: 'var(--body-bg)',
-        borderBottom: '1px solid rgba(0,0,0,.07)',
+        borderBottom: '1px solid var(--divider)',
         paddingTop: 4,
         minHeight: 36,
       }}
@@ -45,7 +45,10 @@ export default function TabBar({ onAddConnection, onRemoveConnection }) {
       <button
         onClick={onAddConnection}
         title="New connection"
-        className="flex items-center justify-center w-6 h-6 rounded-md text-slate-500 text-lg cursor-pointer hover:bg-slate-200 transition-colors mb-1 flex-shrink-0"
+        className="flex items-center justify-center w-6 h-6 rounded-md text-lg cursor-pointer transition-colors mb-1 flex-shrink-0"
+        style={{ color: 'var(--text-muted)' }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--section-hover)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
         +
       </button>

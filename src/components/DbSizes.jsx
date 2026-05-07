@@ -1,9 +1,20 @@
 import React from 'react'
 import { fmtBytes } from '../lib/fmt'
 
+// Color helpers using CSS vars / semantic colors
+function severityColor(isCrit, isWarn) {
+  if (isCrit) return 'var(--c-crit)'
+  if (isWarn) return 'var(--c-warn)'
+  return 'var(--c-ok)'
+}
+
 export default function DbSizes({ data }) {
   if (!data || data.length === 0) {
-    return <span className="text-slate-400 italic text-xs">No data</span>
+    return (
+      <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+        No data
+      </span>
+    )
   }
 
   // Group by volume_mount_point
@@ -26,56 +37,86 @@ export default function DbSizes({ data }) {
   const sortedVols = [...volumes.values()].sort((a, b) => a.mount.localeCompare(b.mount))
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {sortedVols.map((vol, vi) => {
         const freePct = vol.total > 0 ? (vol.avail / vol.total) * 100 : 100
         const usedPct = 100 - freePct
         const isCrit  = freePct < 20
         const isWarn  = freePct < 35 && !isCrit
         const barCls  = isCrit ? 'bar-crit' : isWarn ? 'bar-warn' : 'bar-ok'
+        const color   = severityColor(isCrit, isWarn)
         const mountLabel = (vol.mount || '').replace(/\\+$/, '')
 
         return (
           <div key={vi}>
-            <div className="flex items-center justify-between mb-1 gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ background: isCrit ? '#ef4444' : isWarn ? '#f59e0b' : '#22c55e' }} />
-                <span className={`text-xs font-bold ${isCrit ? 'text-red-700' : isWarn ? 'text-amber-700' : 'text-slate-700'}`}>
+            {/* Volume header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: color }}>
                   {mountLabel}
                 </span>
                 {isCrit && (
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#fef2f2', color: '#dc2626' }}>
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    background: 'rgba(220,38,38,.1)',
+                    color: 'var(--c-crit)',
+                    border: '1px solid rgba(220,38,38,.2)',
+                    letterSpacing: '.04em',
+                  }}>
                     LOW DISK
                   </span>
                 )}
               </div>
-              <span className="text-xs text-slate-500 flex-shrink-0">
-                <span className={isCrit ? 'text-red-600 font-bold' : isWarn ? 'text-amber-600 font-semibold' : 'text-green-600'}>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>
+                <span style={{ color, fontWeight: isCrit || isWarn ? 600 : 400 }}>
                   {fmtBytes(vol.avail)} free
                 </span>
                 {' / '}{fmtBytes(vol.total)}
                 {' · '}
-                <span className={isCrit ? 'text-red-600 font-bold' : isWarn ? 'text-amber-600 font-semibold' : 'text-green-600'}>
+                <span style={{ color, fontWeight: isCrit || isWarn ? 600 : 400 }}>
                   {freePct.toFixed(1)}% free
                 </span>
               </span>
             </div>
-            <div className="db-bar-track mb-2">
+
+            {/* Volume usage bar */}
+            <div className="db-bar-track" style={{ marginBottom: 10 }}>
               <div className={`db-bar-fill ${barCls}`} style={{ width: `${usedPct.toFixed(2)}%` }} />
             </div>
+
+            {/* Database cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
               {vol.dbs.map((row, di) => {
                 const dbPct = vol.total > 0 ? Math.min(100, (row.allocated_bytes / vol.total) * 100) : 0
                 return (
-                  <div key={di} className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="flex items-center justify-between mb-1 gap-2">
-                      <span className="text-xs font-semibold text-slate-700 truncate" title={row.database_name}>
+                  <div
+                    key={di}
+                    style={{
+                      background: 'var(--divider)',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                      <span
+                        style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={row.database_name}
+                      >
                         {row.database_name}
                       </span>
-                      <span className="text-xs text-slate-500 flex-shrink-0">{fmtBytes(row.allocated_bytes)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {fmtBytes(row.allocated_bytes)}
+                      </span>
                     </div>
                     <div className="db-bar-track">
-                      <div className="db-bar-fill bar-ok" style={{ width: `${dbPct.toFixed(2)}%`, background: 'var(--sort-active)', opacity: 0.7 }} />
+                      <div
+                        className="db-bar-fill"
+                        style={{ width: `${dbPct.toFixed(2)}%`, background: 'var(--sort-active)', opacity: 0.65 }}
+                      />
                     </div>
                   </div>
                 )

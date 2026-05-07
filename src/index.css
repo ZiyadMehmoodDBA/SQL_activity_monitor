@@ -86,7 +86,7 @@ body {
 
 /* ── Sort icons ── */
 th.sortable { cursor: pointer; user-select: none; }
-th.sortable:hover { background: #f8fafc; }
+th.sortable:hover { background: var(--section-hover); }
 .sort-icon { opacity: .35; font-size: 10px; margin-left: 2px; }
 th.sort-active .sort-icon { opacity: 1; color: var(--sort-active); }
 
@@ -110,7 +110,15 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
 .dot-idle { background: var(--dot-idle) !important; }
 
 /* ── Charts ── */
-.chart-wrap { position: relative; height: 224px; min-height: 224px; }
+/* Fixed dimensions — never allow flex-grow to push height beyond 224px */
+.chart-wrap {
+  position: relative;
+  height: 224px;
+  min-height: 224px;
+  max-height: 224px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
 
 /* ── Scrollbars ── */
 ::-webkit-scrollbar { height: 5px; width: 5px; }
@@ -235,3 +243,118 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
 [data-theme="dark"] .wia-td { border-color: #21262d; }
 [data-theme="dark"] .wia-row-blocked .wia-td { background: rgba(220,38,38,.12); }
 [data-theme="dark"] .wia-expand-row .wia-expand-td { background: #1c2128; border-color: #30363d; }
+
+/* ── VirtualTable ──────────────────────────────────────────────────────────── */
+.vt-th {
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--divider);
+  background: var(--divider);
+  color: var(--text-muted);
+}
+.vt-td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--divider);
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+/* ── Form tokens (modal / connect dialog) ─────────────────────────────────── */
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.form-input,
+.form-select {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1.5px solid var(--input-border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.form-input::placeholder { color: var(--text-muted); opacity: 1; }
+.form-input:focus,
+.form-select:focus {
+  border-color: var(--sort-active);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.form-textarea {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1.5px solid var(--input-border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  line-height: 1.6;
+  outline: none;
+  resize: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.form-textarea::placeholder { color: var(--text-muted); opacity: 1; }
+.form-textarea:focus {
+  border-color: var(--sort-active);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.form-segmented {
+  display: flex;
+  background: var(--divider);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.form-segmented-btn {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all .15s;
+  color: var(--text-secondary);
+}
+.form-segmented-btn.seg-active {
+  background: var(--card-bg);
+  color: var(--sort-active);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+.form-error {
+  background: rgba(220,38,38,.07);
+  border: 1px solid rgba(220,38,38,.25);
+  color: var(--c-crit);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form-section-sep {
+  border-top: 1px solid var(--divider);
+  padding-top: 14px;
+  margin-top: 4px;
+}
+.form-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}

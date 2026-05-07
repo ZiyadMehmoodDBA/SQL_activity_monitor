@@ -1,6 +1,14 @@
 import React, { useMemo } from 'react'
 import ReactApexChart from 'react-apexcharts'
 
+// Compact axis label formatter (matches KPIBar's cFmt)
+function axFmt(v) {
+  const abs = Math.abs(v)
+  if (abs >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (abs >= 1_000)     return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return String(Math.round(v))
+}
+
 export default function ChartCard({ title, subtitle, value, unit, history, color, yMax }) {
   const series = useMemo(() => [{
     name: title,
@@ -10,97 +18,108 @@ export default function ChartCard({ title, subtitle, value, unit, history, color
   const options = useMemo(() => ({
     chart: {
       type: 'area',
-      toolbar: { show: false },
-      sparkline: { enabled: false },
+      toolbar:    { show: false },
+      sparkline:  { enabled: false },
       animations: {
         enabled: true,
         easing: 'linear',
-        dynamicAnimation: { enabled: true, speed: 350 },
+        dynamicAnimation: { enabled: true, speed: 300 },
       },
       background: 'transparent',
+      redrawOnWindowResize: false,
+      redrawOnParentResize: false,
     },
-    stroke: { curve: 'smooth', width: 2 },
+    stroke: { curve: 'smooth', width: 1.5 },
     fill: {
       type: 'gradient',
       gradient: {
         shadeIntensity: 1,
-        opacityFrom: 0.4,
+        opacityFrom: 0.28,
         opacityTo: 0.0,
-        stops: [0, 90, 100],
+        stops: [0, 100],
         colorStops: [
-          { offset: 0,   color: color, opacity: 0.35 },
-          { offset: 50,  color: color, opacity: 0.1  },
-          { offset: 100, color: color, opacity: 0.0  },
+          { offset: 0,   color, opacity: 0.28 },
+          { offset: 100, color, opacity: 0.0  },
         ],
       },
     },
     colors: [color],
     xaxis: {
-      labels: { show: false },
+      labels:     { show: false },
       axisBorder: { show: false },
-      axisTicks: { show: false },
+      axisTicks:  { show: false },
     },
     yaxis: {
       min: 0,
       ...(yMax ? { max: yMax } : {}),
       opposite: true,
       labels: {
-        style: { colors: 'var(--text-muted)', fontSize: '10px' },
-        formatter: (v) => v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(Math.round(v)),
+        style: { colors: ['var(--text-muted)'], fontSize: '9px', fontFamily: 'inherit' },
+        formatter: axFmt,
+        offsetX: -4,
       },
-      tickAmount: 4,
+      tickAmount: 3,
     },
     grid: {
-      borderColor: 'rgba(0,0,0,.04)',
-      strokeDashArray: 3,
-      yaxis: { lines: { show: true } },
+      borderColor: 'rgba(0,0,0,.05)',
+      strokeDashArray: 4,
+      yaxis: { lines: { show: true  } },
       xaxis: { lines: { show: false } },
-      padding: { top: 4, right: 4, bottom: 0, left: 0 },
+      padding: { top: 2, right: 2, bottom: 0, left: 0 },
     },
-    legend: { show: false },
+    legend:     { show: false },
     dataLabels: { enabled: false },
     tooltip: {
       theme: 'dark',
       style: { fontSize: '11px' },
       x: {
-        formatter: (val, { dataPointIndex, w }) => {
+        formatter: (_, { dataPointIndex, w }) => {
           const total = w.globals.series[0].length
           const ago = (total - 1 - dataPointIndex) * 2
           return ago === 0 ? 'Now' : `${ago}s ago`
         },
       },
       y: {
-        formatter: (val) => {
-          if (val === null || val === undefined) return 'No data'
-          return val >= 1000 ? Math.round(val).toLocaleString() : val % 1 === 0 ? val.toLocaleString() : val.toFixed(2)
+        formatter: v => {
+          if (v === null || v === undefined) return 'No data'
+          return v >= 1000 ? Math.round(v).toLocaleString() : v % 1 === 0 ? v.toLocaleString() : v.toFixed(2)
         },
       },
     },
   }), [color, yMax, title])
 
   return (
-    <div className="mc flex flex-col" style={{ padding: '20px 20px 16px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>
+    <div className="mc flex flex-col" style={{ padding: '18px 18px 12px' }}>
+      {/* Label */}
+      <div style={{
+        fontSize: 10,
+        fontWeight: 700,
+        color: 'var(--text-muted)',
+        textTransform: 'uppercase',
+        letterSpacing: '.065em',
+        marginBottom: 8,
+      }}>
         {title}
       </div>
-      <div className="flex items-end justify-between mb-4">
-        <div
-          className="font-bold leading-none tabular-nums"
-          style={{ fontSize: 38, color }}
-        >
+
+      {/* Value + subtitle */}
+      <div className="flex items-end justify-between" style={{ marginBottom: 12 }}>
+        <div className="font-bold leading-none tabular-nums" style={{ fontSize: 32, color, letterSpacing: '-.02em' }}>
           {value !== null && value !== undefined ? value : '--'}
-          {unit && <span style={{ fontSize: 18, marginLeft: 4 }}>{unit}</span>}
+          {unit && <span style={{ fontSize: 16, marginLeft: 3, opacity: 0.7 }}>{unit}</span>}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', lineHeight: 1.4, maxWidth: 110 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', lineHeight: 1.45, maxWidth: 100 }}>
           {subtitle}
         </div>
       </div>
-      <div className="chart-wrap flex-1">
+
+      {/* Chart — fixed 224px, never grows */}
+      <div className="chart-wrap">
         <ReactApexChart
           type="area"
           series={series}
           options={options}
-          height="100%"
+          height={224}
         />
       </div>
     </div>

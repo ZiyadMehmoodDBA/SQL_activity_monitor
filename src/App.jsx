@@ -89,13 +89,9 @@ export default function App() {
               + New Connection
             </button>
           </div>
-        ) : (
-          connIds.map(id => (
-            <div key={id} style={{ display: state.activeConnId === id ? 'block' : 'none' }}>
-              <Dashboard connId={id} />
-            </div>
-          ))
-        )}
+        ) : state.activeConnId ? (
+          <Dashboard key={state.activeConnId} connId={state.activeConnId} />
+        ) : null}
       </main>
 
       <ConnectModal

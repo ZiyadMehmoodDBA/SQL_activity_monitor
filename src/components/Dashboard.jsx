@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, memo } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES } from '../lib/palettes'
 import { TABLE_COLS } from '../lib/tableCols'
@@ -16,6 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClo
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
 
+// ── Module-level components (stable identity, no remount on Dashboard re-render) ──
+
 function useTimeSince(ts) {
   const [display, setDisplay] = useState('Waiting…')
   useEffect(() => {
@@ -32,7 +34,36 @@ function useTimeSince(ts) {
   return display
 }
 
-export default function Dashboard({ connId }) {
+// Stable component — NOT defined inside Dashboard, so no remount on parent re-render
+const SectionBadge = memo(function SectionBadge({ count, alertWhen }) {
+  const isAlert = alertWhen && count > 0
+  return (
+    <span
+      className="text-xs px-2 py-0.5 rounded font-semibold tabular-nums"
+      style={{
+        background: isAlert ? 'rgba(220,38,38,.1)' : 'var(--badge-bg)',
+        color: isAlert ? 'var(--c-crit)' : 'var(--badge-text)',
+      }}
+    >
+      {count}
+    </span>
+  )
+})
+
+// ── Chart config builder (pure, no side effects) ──────────────────────────────
+function buildCharts(m, sp, conn, p) {
+  return [
+    { id: 'chart_cpu',          title: '% Processor Time',    subtitle: 'SQL CPU utilization',          value: m ? m.cpu_percent + '%' : '--',                        color: p.chartCpu,   yMax: 100,  history: conn.history.cpu },
+    { id: 'chart_wait',         title: 'Waiting Tasks',        subtitle: 'Suspended / waiting requests', value: m ? m.waiting_tasks : '--',                            color: p.chartWait,  yMax: null, history: conn.history.wait },
+    { id: 'chart_io',           title: 'Database I/O',         subtitle: 'MB/s read + write',            value: m ? m.db_io_mb + ' MB/s' : '--',                       color: p.chartIo,    yMax: null, history: conn.history.io },
+    { id: 'chart_batch',        title: 'Batch Requests/sec',   subtitle: 'Batches received per second',  value: m ? m.batch_requests?.toLocaleString() : '--',         color: p.chartBatch, yMax: null, history: conn.history.batch },
+    { id: 'chart_net',          title: 'Network I/O',          subtitle: 'MB/s SQL connections',         value: m ? (sp.netMbs || 0) + ' MB/s' : '--',                 color: p.chartIo,    yMax: null, history: conn.history.netMb },
+    { id: 'chart_compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,   yMax: null, history: conn.history.compilations },
+  ]
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+export default memo(function Dashboard({ connId }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
@@ -45,31 +76,45 @@ export default function Dashboard({ connId }) {
   const sp = m?.serverPerf || {}
   const p  = PALETTES[state.palette] || PALETTES['Enterprise']
 
-  // ── Widget enabled check ─────────────────────────────────────────────────
-  const layoutMap = Object.fromEntries((state.widgetLayout || []).map(w => [w.id, w.enabled]))
-  function on(id) { return layoutMap[id] !== false }
+  // ── Stable widget layout map (only recomputes when widgetLayout changes) ──
+  const layoutMap = useMemo(
+    () => Object.fromEntries((state.widgetLayout || []).map(w => [w.id, w.enabled])),
+    [state.widgetLayout]
+  )
+  const on = useCallback((id) => layoutMap[id] !== false, [layoutMap])
 
-  // Ordered section list from widgetLayout
-  const orderedSections = (state.widgetLayout || [])
-    .filter(w => SECTION_IDS.includes(w.id) && w.enabled)
-    .map(w => w.id)
+  const orderedSections = useMemo(
+    () => (state.widgetLayout || [])
+      .filter(w => SECTION_IDS.includes(w.id) && w.enabled)
+      .map(w => w.id),
+    [state.widgetLayout]
+  )
+
+  const enabledCharts = useMemo(
+    () => buildCharts(m, sp, conn, p).filter(c => on(c.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [m, sp, conn.history, p, layoutMap]
+  )
+
+  const showJobs     = on('jobs_panel')
+  const showSessions = on('sessions_panel')
 
   // ── Sort helpers ─────────────────────────────────────────────────────────
-  function handleSort(tableId, col) {
+  const handleSort = useCallback((tableId, col) => {
     const current = conn.sortState[tableId]
     const dir = current.col === col ? (current.dir === 'desc' ? 'asc' : 'desc') : 'desc'
     dispatch({ type: 'SET_TABLE_SORT', connId, tableId, col, dir })
-  }
+  }, [conn.sortState, connId, dispatch])
 
   function sortedData(tableId) {
     const rows = m?.[
-      tableId === 'proc'      ? 'processes'
-      : tableId === 'waits'   ? 'resourceWaits'
-      : tableId === 'fileio'  ? 'dataFileIO'
-      : tableId === 'recent'  ? 'recentExpensive'
-      : tableId === 'active'  ? 'activeExpensive'
-      : tableId === 'blocking'? 'blocking'
-      : tableId === 'deadlocks'?'deadlocks'
+      tableId === 'proc'       ? 'processes'
+      : tableId === 'waits'    ? 'resourceWaits'
+      : tableId === 'fileio'   ? 'dataFileIO'
+      : tableId === 'recent'   ? 'recentExpensive'
+      : tableId === 'active'   ? 'activeExpensive'
+      : tableId === 'blocking' ? 'blocking'
+      : tableId === 'deadlocks'? 'deadlocks'
       : tableId] || []
     const { col, dir } = conn.sortState[tableId]
     return [...rows].sort((a, b) => {
@@ -80,15 +125,15 @@ export default function Dashboard({ connId }) {
     })
   }
 
-  // ── Kill sleeping ────────────────────────────────────────────────────────
-  function killAllSleeping() {
+  // ── Kill sleeping ─────────────────────────────────────────────────────────
+  const killAllSleeping = useCallback(() => {
     const sleeping = (m?.processes || []).filter(r => String(r.status).toLowerCase() === 'sleeping')
     if (sleeping.length === 0) { setKillResult({ error: 'No sleeping sessions to kill.' }); return }
     setKillResult(null)
     setKillDialog({ count: sleeping.length })
-  }
+  }, [m?.processes])
 
-  async function confirmKillSleeping() {
+  const confirmKillSleeping = useCallback(async () => {
     setKillDialog(null)
     try {
       const res  = await fetch(`/api/connections/${connId}/kill-sleeping`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
@@ -98,38 +143,9 @@ export default function Dashboard({ connId }) {
     } catch (err) {
       setKillResult({ error: err.message })
     }
-  }
+  }, [connId])
 
-  // ── Section badge ────────────────────────────────────────────────────────
-  function SectionBadge({ count, alertWhen }) {
-    const isAlert = alertWhen && count > 0
-    return (
-      <span className="text-xs px-2 py-0.5 rounded font-semibold tabular-nums"
-        style={{
-          background: isAlert ? 'rgba(220,38,38,.1)' : 'var(--badge-bg)',
-          color: isAlert ? 'var(--c-crit)' : 'var(--badge-text)',
-        }}>
-        {count}
-      </span>
-    )
-  }
-
-  // ── Chart config ─────────────────────────────────────────────────────────
-  const ALL_CHARTS = [
-    { id: 'chart_cpu',          title: '% Processor Time',    subtitle: 'SQL CPU utilization',          value: m ? m.cpu_percent + '%' : '--',                        color: p.chartCpu,  yMax: 100,  history: conn.history.cpu },
-    { id: 'chart_wait',         title: 'Waiting Tasks',        subtitle: 'Suspended / waiting requests', value: m ? m.waiting_tasks : '--',                            color: p.chartWait, yMax: null, history: conn.history.wait },
-    { id: 'chart_io',           title: 'Database I/O',         subtitle: 'MB/s read + write',            value: m ? m.db_io_mb + ' MB/s' : '--',                       color: p.chartIo,   yMax: null, history: conn.history.io },
-    { id: 'chart_batch',        title: 'Batch Requests/sec',   subtitle: 'Batches received per second',  value: m ? m.batch_requests?.toLocaleString() : '--',         color: p.chartBatch,yMax: null, history: conn.history.batch },
-    { id: 'chart_net',          title: 'Network I/O',          subtitle: 'MB/s SQL connections',         value: m ? (sp.netMbs || 0) + ' MB/s' : '--',                 color: p.chartIo,   yMax: null, history: conn.history.netMb },
-    { id: 'chart_compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,  yMax: null, history: conn.history.compilations },
-  ]
-  const enabledCharts = ALL_CHARTS.filter(c => on(c.id))
-
-  // Row 3 visibility
-  const showJobs     = on('jobs_panel')
-  const showSessions = on('sessions_panel')
-
-  // ── Section renderer ─────────────────────────────────────────────────────
+  // ── Section renderer ──────────────────────────────────────────────────────
   function renderSection(id) {
     switch (id) {
       case 'db_sizes':
@@ -299,11 +315,11 @@ export default function Dashboard({ connId }) {
       {/* KPI bar */}
       {on('kpi_bar') && <KPIBar conn={conn} />}
 
-      {/* Charts — responsive auto-fill grid */}
+      {/* Charts — fixed-column responsive grid, no auto-fill reflow */}
       {enabledCharts.length > 0 && (
         <div
           className="gap-6 mb-6"
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', alignItems: 'start' }}
         >
           {enabledCharts.map(c => (
             <ChartCard
@@ -319,10 +335,10 @@ export default function Dashboard({ connId }) {
         </div>
       )}
 
-      {/* Row 3: Jobs + Sessions — adapts when one is hidden */}
+      {/* Row 3: Jobs + Sessions */}
       {(showJobs || showSessions) && (
         <div className={`gap-6 mb-6 ${showJobs && showSessions ? 'grid grid-cols-12' : 'grid grid-cols-1'}`}>
-          {showJobs     && <JobsPanel     jobs={m?.jobs || []}       connId={connId} />}
+          {showJobs     && <JobsPanel     jobs={m?.jobs || []}           connId={connId} />}
           {showSessions && <SessionsPanel processes={m?.processes || []} connId={connId} />}
         </div>
       )}
@@ -338,4 +354,4 @@ export default function Dashboard({ connId }) {
       )}
     </div>
   )
-}
+})

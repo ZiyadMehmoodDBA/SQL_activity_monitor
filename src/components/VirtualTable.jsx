@@ -1,12 +1,9 @@
 import React, { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-const TH = 'px-3 py-2 text-left font-semibold whitespace-nowrap border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500'
-const TD = 'px-3 py-1.5 border-b whitespace-nowrap text-xs'
-
 function fmtCell(val, type) {
   if (val === null || val === undefined) {
-    return <span className="text-slate-300">—</span>
+    return <span style={{ color: 'var(--text-muted)', opacity: .5 }}>—</span>
   }
   switch (type) {
     case 'num':
@@ -15,15 +12,15 @@ function fmtCell(val, type) {
       return <span className="tabular-nums">{parseFloat(val).toFixed(1)}</span>
     case 'zero':
       return val && val !== 0
-        ? <span className="text-red-600 font-medium tabular-nums">{val}</span>
-        : <span className="text-slate-300">—</span>
+        ? <span style={{ color: 'var(--c-crit)', fontWeight: 500 }} className="tabular-nums">{val}</span>
+        : <span style={{ color: 'var(--text-muted)', opacity: .4 }}>—</span>
     case 'badge': {
       const s = String(val).toLowerCase()
-      const cls = s === 'running' ? 'status-running'
-        : s === 'suspended' ? 'status-suspended'
-        : s === 'sleeping'  ? 'status-sleeping'
-        : s === 'background'? 'status-background'
-        : 'status-other'
+      const cls = s === 'running'    ? 'status-running'
+                : s === 'suspended'  ? 'status-suspended'
+                : s === 'sleeping'   ? 'status-sleeping'
+                : s === 'background' ? 'status-background'
+                : 'status-other'
       return (
         <span className={`px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${cls}`}>
           {val}
@@ -35,11 +32,19 @@ function fmtCell(val, type) {
       const short = text.length > 60 ? text.slice(0, 60) + '…' : text
       return (
         <span
-          className="query-cell block"
           title={text}
-          style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 10 }}
+          style={{
+            display: 'block',
+            maxWidth: 280,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontFamily: 'monospace',
+            fontSize: 10,
+            color: 'var(--text-secondary)',
+          }}
         >
-          {short || <span className="text-slate-300">—</span>}
+          {short || <span style={{ color: 'var(--text-muted)', opacity: .4 }}>—</span>}
         </span>
       )
     }
@@ -47,16 +52,15 @@ function fmtCell(val, type) {
       const s = String(val)
       return (
         <span
-          className="trunc-cell block"
           title={s}
-          style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          style={{ display: 'block', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         >
           {s || '—'}
         </span>
       )
     }
     default:
-      return String(val) || <span className="text-slate-300">—</span>
+      return String(val) || <span style={{ color: 'var(--text-muted)', opacity: .4 }}>—</span>
   }
 }
 
@@ -88,14 +92,18 @@ export default function VirtualTable({
           <thead>
             <tr>
               {columns.map(c => (
-                <th key={c.key} className={TH}>{c.label}</th>
+                <th key={c.key} className="vt-th">{c.label}</th>
               ))}
-              {extraCol && <th className={TH}></th>}
+              {extraCol && <th className="vt-th" />}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td colSpan={columns.length + (extraCol ? 1 : 0)} className="text-slate-400 italic text-center py-5 text-xs">
+              <td
+                colSpan={columns.length + (extraCol ? 1 : 0)}
+                className="italic text-center py-5 text-xs"
+                style={{ color: 'var(--text-muted)' }}
+              >
                 No data
               </td>
             </tr>
@@ -107,7 +115,7 @@ export default function VirtualTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
+      <table className="w-full" style={{ tableLayout: 'fixed' }}>
         <thead>
           <tr>
             {columns.map(c => {
@@ -115,7 +123,7 @@ export default function VirtualTable({
               return (
                 <th
                   key={c.key}
-                  className={`${TH} sortable ${active ? 'sort-active' : ''}`}
+                  className={`vt-th sortable ${active ? 'sort-active' : ''}`}
                   onClick={() => onSort && onSort(c.key)}
                   style={{ width: c.width }}
                 >
@@ -126,12 +134,13 @@ export default function VirtualTable({
                 </th>
               )
             })}
-            {extraCol && <th className={TH} style={{ width: 60 }}></th>}
+            {extraCol && <th className="vt-th" style={{ width: 60 }} />}
           </tr>
         </thead>
       </table>
       <div
         ref={parentRef}
+        className="op-scroll"
         style={{ overflow: 'auto', height, position: 'relative' }}
       >
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -155,12 +164,12 @@ export default function VirtualTable({
                       style={rs}
                     >
                       {columns.map(c => (
-                        <td key={c.key} className={TD} style={{ width: c.width }}>
+                        <td key={c.key} className="vt-td" style={{ width: c.width }}>
                           {fmtCell(row[c.key], c.type)}
                         </td>
                       ))}
                       {extraCol && renderExtraCell && (
-                        <td className={TD} style={{ width: 60 }}>
+                        <td className="vt-td" style={{ width: 60 }}>
                           {renderExtraCell(row)}
                         </td>
                       )}

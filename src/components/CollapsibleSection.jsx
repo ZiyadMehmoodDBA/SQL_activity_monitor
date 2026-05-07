@@ -18,14 +18,15 @@ export default function CollapsibleSection({ connId, sectionId, title, children,
       >
         <div className="flex items-center gap-2.5">
           <svg
-            className={`chevron ${isCollapsed ? '' : 'open'} w-3.5 h-3.5 text-slate-400 flex-shrink-0`}
+            className={`chevron ${isCollapsed ? '' : 'open'} w-3.5 h-3.5 flex-shrink-0`}
+            style={{ color: 'var(--text-muted)' }}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-          <span className="text-base font-bold text-slate-700">{title}</span>
+          <span className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>{title}</span>
           {badge}
         </div>
         {extra}
