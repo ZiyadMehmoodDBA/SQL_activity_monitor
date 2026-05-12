@@ -2,23 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogClose } from './ui/Dialog'
 import { ChevronDown, Server, X } from 'lucide-react'
 
-// ── Dark design tokens ───────────────────────────────────────────────────────
-const D = {
-  surface:     '#111827',
-  surfaceL1:   '#1f2937',
-  surfaceL2:   '#374151',
-  border:      '#374151',
-  borderSub:   '#1f2937',
-  text:        '#f9fafb',
-  textSub:     '#d1d5db',
-  textMuted:   '#9ca3af',
-  accent:      '#3b82f6',
-  accentRing:  'rgba(59,130,246,0.25)',
-  danger:      '#ef4444',
-  dangerBg:    'rgba(239,68,68,0.12)',
-  dangerBorder:'rgba(239,68,68,0.35)',
-}
-
 const TAB_COLORS = [
   '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
   '#ec4899','#06b6d4','#84cc16','#f97316','#6366f1',
@@ -31,8 +14,8 @@ function Label({ children }) {
     <label style={{
       display: 'block',
       fontSize: 11,
-      fontWeight: 600,
-      color: D.textSub,
+      fontWeight: 700,
+      color: 'var(--text-primary)',
       marginBottom: 6,
       letterSpacing: '.04em',
       textTransform: 'uppercase',
@@ -42,7 +25,7 @@ function Label({ children }) {
   )
 }
 
-function Input({ type = 'text', value, onChange, placeholder, required, autoComplete, style }) {
+function Input({ type = 'text', value, onChange, placeholder, required, autoComplete }) {
   const [focused, setFocused] = useState(false)
   return (
     <input
@@ -57,23 +40,22 @@ function Input({ type = 'text', value, onChange, placeholder, required, autoComp
       style={{
         width: '100%',
         minHeight: 44,
-        background: D.surfaceL1,
-        border: `1px solid ${focused ? D.accent : D.border}`,
-        boxShadow: focused ? `0 0 0 3px ${D.accentRing}` : 'none',
-        color: D.text,
+        background: 'var(--input-bg)',
+        border: `1.5px solid ${focused ? 'var(--sort-active)' : 'var(--input-border)'}`,
+        boxShadow: focused ? '0 0 0 3px rgba(59,130,246,0.18)' : 'none',
+        color: 'var(--text-primary)',
         borderRadius: 8,
         padding: '10px 13px',
         fontSize: 13,
         outline: 'none',
         transition: 'border-color .15s, box-shadow .15s',
         boxSizing: 'border-box',
-        ...style,
       }}
     />
   )
 }
 
-function Select({ value, onChange, children }) {
+function SelInput({ value, onChange, children }) {
   const [focused, setFocused] = useState(false)
   return (
     <select
@@ -84,10 +66,10 @@ function Select({ value, onChange, children }) {
       style={{
         width: '100%',
         minHeight: 44,
-        background: D.surfaceL1,
-        border: `1px solid ${focused ? D.accent : D.border}`,
-        boxShadow: focused ? `0 0 0 3px ${D.accentRing}` : 'none',
-        color: D.text,
+        background: 'var(--input-bg)',
+        border: `1.5px solid ${focused ? 'var(--sort-active)' : 'var(--input-border)'}`,
+        boxShadow: focused ? '0 0 0 3px rgba(59,130,246,0.18)' : 'none',
+        color: 'var(--text-primary)',
         borderRadius: 8,
         padding: '10px 13px',
         fontSize: 13,
@@ -104,15 +86,16 @@ function Select({ value, onChange, children }) {
   )
 }
 
+// Active option = solid accent fill (always visible regardless of palette)
 function Seg({ options, value, onChange }) {
   return (
     <div style={{
       display: 'flex',
-      background: D.surfaceL1,
+      background: 'var(--divider)',
       borderRadius: 9,
       padding: 3,
       gap: 3,
-      border: `1px solid ${D.border}`,
+      border: '1px solid var(--input-border)',
     }}>
       {options.map(opt => {
         const active = value === opt.value
@@ -123,14 +106,14 @@ function Seg({ options, value, onChange }) {
             onClick={() => onChange(opt.value)}
             style={{
               flex: 1,
-              minHeight: 36,
+              minHeight: 38,
               padding: '7px 12px',
               fontSize: 12,
               fontWeight: active ? 700 : 500,
               borderRadius: 7,
               transition: 'all .15s',
-              color: active ? '#fff' : D.textMuted,
-              background: active ? D.accent : 'transparent',
+              color: active ? '#fff' : 'var(--text-secondary)',
+              background: active ? 'var(--sort-active)' : 'transparent',
               boxShadow: active ? '0 1px 6px rgba(59,130,246,0.35)' : 'none',
               border: 'none',
               cursor: 'pointer',
@@ -144,10 +127,11 @@ function Seg({ options, value, onChange }) {
   )
 }
 
+// Collapsible group — border uses palette divider
 function Section({ title, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div style={{ borderTop: `1px solid ${D.borderSub}` }}>
+    <div style={{ borderTop: '1.5px solid var(--divider)', marginTop: 2 }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -156,7 +140,7 @@ function Section({ title, children, defaultOpen = false }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '11px 0',
+          padding: '10px 0',
           cursor: 'pointer',
           background: 'none',
           border: 'none',
@@ -166,7 +150,7 @@ function Section({ title, children, defaultOpen = false }) {
         <span style={{
           fontSize: 10,
           fontWeight: 700,
-          color: D.textMuted,
+          color: 'var(--text-secondary)',
           textTransform: 'uppercase',
           letterSpacing: '.08em',
         }}>
@@ -175,7 +159,7 @@ function Section({ title, children, defaultOpen = false }) {
         <ChevronDown
           size={13}
           style={{
-            color: D.textMuted,
+            color: 'var(--text-muted)',
             transition: 'transform .15s',
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
             flexShrink: 0,
@@ -255,29 +239,29 @@ export default function ConnectModal({ open, onClose, onConnected }) {
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent style={{ maxWidth: 520, padding: 0, overflow: 'hidden' }}>
 
-        {/* ── Header ── */}
+        {/* ── Header — always dark, uses header-bg palette token ── */}
         <div style={{
-          background: 'linear-gradient(135deg, #1e3a5f 0%, #1e2d4a 100%)',
-          borderBottom: `1px solid ${D.borderSub}`,
-          padding: '20px 24px 18px',
+          background: 'var(--header-bg)',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          padding: '18px 22px 16px',
           display: 'flex',
           alignItems: 'center',
           gap: 14,
         }}>
           <div style={{
-            width: 40, height: 40, borderRadius: 10,
-            background: 'rgba(59,130,246,0.2)',
-            border: '1px solid rgba(59,130,246,0.3)',
+            width: 38, height: 38, borderRadius: 10,
+            background: 'rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255,255,255,0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <Server size={19} style={{ color: '#93c5fd' }} />
+            <Server size={18} style={{ color: 'var(--header-server)' }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: D.text, lineHeight: 1.3 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9', lineHeight: 1.3 }}>
               Connect to SQL Server
             </div>
-            <div style={{ fontSize: 12, color: D.textMuted, marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--header-status-txt)', marginTop: 2 }}>
               Add a new monitored instance
             </div>
           </div>
@@ -286,11 +270,12 @@ export default function ConnectModal({ open, onClose, onConnected }) {
               style={{
                 width: 32, height: 32,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: D.textMuted, borderRadius: 7, border: 'none',
+                color: '#64748b', borderRadius: 7, border: 'none',
                 background: 'transparent', cursor: 'pointer', transition: 'all .15s',
+                flexShrink: 0,
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = D.text }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = D.textMuted }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#e2e8f0' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b' }}
             >
               <X size={15} />
             </button>
@@ -300,9 +285,9 @@ export default function ConnectModal({ open, onClose, onConnected }) {
         {/* ── Tabs ── */}
         <div style={{
           display: 'flex',
-          background: D.surfaceL1,
-          borderBottom: `1px solid ${D.borderSub}`,
-          padding: '0 24px',
+          background: 'var(--section-hover)',
+          borderBottom: '1.5px solid var(--divider)',
+          padding: '0 22px',
         }}>
           {[
             { key: 'login',   label: 'Login' },
@@ -318,17 +303,18 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                   padding: '11px 14px',
                   fontSize: 13,
                   fontWeight: active ? 700 : 500,
-                  color: active ? '#60a5fa' : D.textMuted,
-                  borderBottom: `2px solid ${active ? '#3b82f6' : 'transparent'}`,
+                  color: active ? 'var(--sort-active)' : 'var(--text-muted)',
+                  borderBottom: `2px solid ${active ? 'var(--sort-active)' : 'transparent'}`,
                   marginBottom: -1,
                   background: 'none',
                   border: 'none',
                   borderBottomWidth: 2,
                   borderBottomStyle: 'solid',
-                  borderBottomColor: active ? '#3b82f6' : 'transparent',
+                  borderBottomColor: active ? 'var(--sort-active)' : 'transparent',
                   cursor: 'pointer',
                   transition: 'all .15s',
                   minHeight: 44,
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {t.label}
@@ -338,7 +324,12 @@ export default function ConnectModal({ open, onClose, onConnected }) {
         </div>
 
         {/* ── Form body ── */}
-        <div style={{ padding: '22px 24px 24px', background: D.surface, overflowY: 'auto', maxHeight: '72vh' }}>
+        <div style={{
+          padding: '20px 22px 24px',
+          background: 'var(--card-bg)',
+          overflowY: 'auto',
+          maxHeight: '70vh',
+        }}>
           <form
             onSubmit={modalTab === 'login' ? handleLoginSubmit : e => { e.preventDefault(); handleConnStrSubmit() }}
             autoComplete="off"
@@ -348,10 +339,10 @@ export default function ConnectModal({ open, onClose, onConnected }) {
             {modalTab === 'login' && (
               <div>
 
-                {/* Connection group */}
+                {/* Connection */}
                 <div style={{ marginBottom: 4 }}>
                   <div style={{
-                    fontSize: 10, fontWeight: 700, color: D.textMuted,
+                    fontSize: 10, fontWeight: 700, color: 'var(--text-muted)',
                     textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12,
                   }}>
                     Connection
@@ -370,7 +361,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                       <div>
                         <Label>
                           Label{' '}
-                          <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10, color: D.textMuted }}>
+                          <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10, color: 'var(--text-muted)' }}>
                             (optional)
                           </span>
                         </Label>
@@ -438,24 +429,25 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'end' }}>
                       <div>
                         <Label>Encryption</Label>
-                        <Select value={encrypt} onChange={e => setEncrypt(e.target.value)}>
+                        <SelInput value={encrypt} onChange={e => setEncrypt(e.target.value)}>
                           <option value="false">Optional</option>
                           <option value="true">Mandatory</option>
                           <option value="strict">Strict (SQL 2022 / Azure)</option>
-                        </Select>
+                        </SelInput>
                       </div>
-                      <div style={{ paddingBottom: 2 }}>
+                      <div>
                         <label style={{
-                          display: 'flex', alignItems: 'center', gap: 10,
-                          cursor: 'pointer', userSelect: 'none', minHeight: 44,
+                          display: 'flex', alignItems: 'center', gap: 9,
+                          cursor: 'pointer', userSelect: 'none',
+                          minHeight: 44, paddingBottom: 2,
                         }}>
                           <input
                             type="checkbox"
                             checked={trustCert}
                             onChange={e => setTrustCert(e.target.checked)}
-                            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: D.accent }}
+                            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--sort-active)', flexShrink: 0 }}
                           />
-                          <span style={{ fontSize: 13, color: D.textSub, fontWeight: 500 }}>
+                          <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
                             Trust Certificate
                           </span>
                         </label>
@@ -498,30 +490,27 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                             onClick={() => setSelectedColor(c)}
                             title={c}
                             style={{
-                              width: 24, height: 24,
+                              width: 22, height: 22,
                               borderRadius: '50%',
                               background: c,
-                              border: selectedColor === c ? `2px solid #fff` : '2px solid transparent',
+                              border: selectedColor === c ? '2.5px solid var(--text-primary)' : '2.5px solid transparent',
                               outline: selectedColor === c ? `2px solid ${c}` : 'none',
                               outlineOffset: 2,
                               cursor: 'pointer',
                               transition: 'transform .12s',
-                              transform: selectedColor === c ? 'scale(1.2)' : 'scale(1)',
+                              transform: selectedColor === c ? 'scale(1.22)' : 'scale(1)',
                             }}
                           />
                         ))}
                         <span style={{
                           marginLeft: 4,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: 11,
-                          color: D.textMuted,
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          fontSize: 11, color: 'var(--text-muted)',
                         }}>
                           <span style={{
-                            width: 22, height: 22, borderRadius: 6,
+                            width: 20, height: 20, borderRadius: 5,
                             background: selectedColor,
-                            border: '1.5px solid rgba(255,255,255,0.15)',
+                            border: '1.5px solid var(--input-border)',
                             display: 'inline-block', flexShrink: 0,
                           }} />
                           {selectedColor}
@@ -535,9 +524,9 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                 {error && (
                   <div style={{
                     marginTop: 14,
-                    background: D.dangerBg,
-                    border: `1px solid ${D.dangerBorder}`,
-                    color: '#fca5a5',
+                    background: 'rgba(220,38,38,0.07)',
+                    border: '1px solid rgba(220,38,38,0.25)',
+                    color: 'var(--c-crit)',
                     borderRadius: 8,
                     padding: '10px 14px',
                     fontSize: 12,
@@ -560,14 +549,12 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                     fontSize: 14,
                     fontWeight: 700,
                     color: '#fff',
-                    background: loading
-                      ? D.surfaceL2
-                      : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                    border: loading ? `1px solid ${D.border}` : '1px solid rgba(96,165,250,0.3)',
-                    boxShadow: loading ? 'none' : '0 4px 14px rgba(37,99,235,0.4)',
+                    background: loading ? 'var(--text-muted)' : 'var(--header-bg)',
+                    border: 'none',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'all .15s',
+                    transition: 'opacity .15s',
                     letterSpacing: '.02em',
+                    boxShadow: loading ? 'none' : '0 2px 10px rgba(0,0,0,0.25)',
                   }}
                 >
                   {loading ? 'Connecting…' : 'Connect'}
@@ -578,7 +565,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
             {/* ── Connection string tab ── */}
             {modalTab === 'connstr' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <p style={{ fontSize: 12, color: D.textMuted, margin: 0 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
                   ADO.NET connection strings are supported.
                 </p>
                 <textarea
@@ -586,13 +573,13 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                   value={connStr}
                   onChange={e => setConnStr(e.target.value)}
                   placeholder="Paste connection string here…"
-                  onFocus={e => { e.target.style.borderColor = D.accent; e.target.style.boxShadow = `0 0 0 3px ${D.accentRing}` }}
-                  onBlur={e => { e.target.style.borderColor = D.border; e.target.style.boxShadow = 'none' }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--sort-active)'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.18)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--input-border)'; e.target.style.boxShadow = 'none' }}
                   style={{
                     width: '100%',
-                    background: D.surfaceL1,
-                    border: `1px solid ${D.border}`,
-                    color: D.text,
+                    background: 'var(--input-bg)',
+                    border: '1.5px solid var(--input-border)',
+                    color: 'var(--text-primary)',
                     borderRadius: 8,
                     padding: '10px 13px',
                     fontSize: 12,
@@ -615,15 +602,15 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                         onClick={() => setSelectedColor(c)}
                         title={c}
                         style={{
-                          width: 24, height: 24,
+                          width: 22, height: 22,
                           borderRadius: '50%',
                           background: c,
-                          border: selectedColor === c ? `2px solid #fff` : '2px solid transparent',
+                          border: selectedColor === c ? '2.5px solid var(--text-primary)' : '2.5px solid transparent',
                           outline: selectedColor === c ? `2px solid ${c}` : 'none',
                           outlineOffset: 2,
                           cursor: 'pointer',
                           transition: 'transform .12s',
-                          transform: selectedColor === c ? 'scale(1.2)' : 'scale(1)',
+                          transform: selectedColor === c ? 'scale(1.22)' : 'scale(1)',
                         }}
                       />
                     ))}
@@ -632,9 +619,9 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {error && (
                   <div style={{
-                    background: D.dangerBg,
-                    border: `1px solid ${D.dangerBorder}`,
-                    color: '#fca5a5',
+                    background: 'rgba(220,38,38,0.07)',
+                    border: '1px solid rgba(220,38,38,0.25)',
+                    color: 'var(--c-crit)',
                     borderRadius: 8,
                     padding: '10px 14px',
                     fontSize: 12,
@@ -655,13 +642,11 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                     fontSize: 14,
                     fontWeight: 700,
                     color: '#fff',
-                    background: loading
-                      ? D.surfaceL2
-                      : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                    border: loading ? `1px solid ${D.border}` : '1px solid rgba(96,165,250,0.3)',
-                    boxShadow: loading ? 'none' : '0 4px 14px rgba(37,99,235,0.4)',
+                    background: loading ? 'var(--text-muted)' : 'var(--header-bg)',
+                    border: 'none',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'all .15s',
+                    transition: 'opacity .15s',
+                    boxShadow: loading ? 'none' : '0 2px 10px rgba(0,0,0,0.25)',
                   }}
                 >
                   {loading ? 'Connecting…' : 'Connect'}

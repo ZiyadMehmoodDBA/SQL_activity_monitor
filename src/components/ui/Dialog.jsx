@@ -24,12 +24,13 @@ export function DialogContent({ children, className, ...props }) {
           'w-full max-w-md rounded-2xl focus:outline-none',
           className
         )}
-        style={{
-          background: '#111827',
-          border: '1px solid #1f2937',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06)',
-        }}
         {...props}
+        style={{
+          background: 'var(--card-bg)',
+          border: '1px solid var(--input-border)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.06)',
+          ...props.style,
+        }}
       >
         {children}
       </RadixDialog.Content>
