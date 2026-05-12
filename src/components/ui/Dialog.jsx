@@ -17,7 +17,7 @@ export function DialogTrigger({ children, asChild }) {
 export function DialogContent({ children, className, ...props }) {
   return (
     <RadixDialog.Portal>
-      <RadixDialog.Overlay className="fixed inset-0 z-50" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(2px)' }} />
+      <RadixDialog.Overlay className="fixed inset-0 z-50" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }} />
       <RadixDialog.Content
         className={cn(
           'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
@@ -25,9 +25,9 @@ export function DialogContent({ children, className, ...props }) {
           className
         )}
         style={{
-          background: 'var(--card-bg)',
-          border: '1px solid var(--input-border)',
-          boxShadow: 'var(--card-shadow), 0 24px 48px rgba(0,0,0,.35)',
+          background: '#111827',
+          border: '1px solid #1f2937',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06)',
         }}
         {...props}
       >

@@ -1,30 +1,49 @@
 import React, { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogClose } from './ui/Dialog'
+import { Dialog, DialogContent, DialogClose } from './ui/Dialog'
 import { ChevronDown, Server, X } from 'lucide-react'
+
+// ── Dark design tokens ───────────────────────────────────────────────────────
+const D = {
+  surface:     '#111827',
+  surfaceL1:   '#1f2937',
+  surfaceL2:   '#374151',
+  border:      '#374151',
+  borderSub:   '#1f2937',
+  text:        '#f9fafb',
+  textSub:     '#d1d5db',
+  textMuted:   '#9ca3af',
+  accent:      '#3b82f6',
+  accentRing:  'rgba(59,130,246,0.25)',
+  danger:      '#ef4444',
+  dangerBg:    'rgba(239,68,68,0.12)',
+  dangerBorder:'rgba(239,68,68,0.35)',
+}
 
 const TAB_COLORS = [
   '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
   '#ec4899','#06b6d4','#84cc16','#f97316','#6366f1',
 ]
 
-// Field label
+// ── Shared field components ──────────────────────────────────────────────────
+
 function Label({ children }) {
   return (
     <label style={{
       display: 'block',
       fontSize: 11,
-      fontWeight: 700,
-      color: '#334155',
-      marginBottom: 5,
-      letterSpacing: '.03em',
+      fontWeight: 600,
+      color: D.textSub,
+      marginBottom: 6,
+      letterSpacing: '.04em',
+      textTransform: 'uppercase',
     }}>
       {children}
     </label>
   )
 }
 
-// Text / password input
-function Input({ type = 'text', value, onChange, placeholder, required, autoComplete }) {
+function Input({ type = 'text', value, onChange, placeholder, required, autoComplete, style }) {
+  const [focused, setFocused] = useState(false)
   return (
     <input
       type={type}
@@ -33,37 +52,44 @@ function Input({ type = 'text', value, onChange, placeholder, required, autoComp
       placeholder={placeholder}
       required={required}
       autoComplete={autoComplete}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={{
         width: '100%',
-        background: '#fff',
-        border: '1.5px solid #cbd5e1',
-        color: '#0f172a',
+        minHeight: 44,
+        background: D.surfaceL1,
+        border: `1px solid ${focused ? D.accent : D.border}`,
+        boxShadow: focused ? `0 0 0 3px ${D.accentRing}` : 'none',
+        color: D.text,
         borderRadius: 8,
-        padding: '8px 11px',
+        padding: '10px 13px',
         fontSize: 13,
         outline: 'none',
         transition: 'border-color .15s, box-shadow .15s',
         boxSizing: 'border-box',
+        ...style,
       }}
-      onFocus={e => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,.15)' }}
-      onBlur={e => { e.target.style.borderColor = '#cbd5e1'; e.target.style.boxShadow = 'none' }}
     />
   )
 }
 
-// Select
-function Select({ value, onChange, children, style }) {
+function Select({ value, onChange, children }) {
+  const [focused, setFocused] = useState(false)
   return (
     <select
       value={value}
       onChange={onChange}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={{
         width: '100%',
-        background: '#fff',
-        border: '1.5px solid #cbd5e1',
-        color: '#0f172a',
+        minHeight: 44,
+        background: D.surfaceL1,
+        border: `1px solid ${focused ? D.accent : D.border}`,
+        boxShadow: focused ? `0 0 0 3px ${D.accentRing}` : 'none',
+        color: D.text,
         borderRadius: 8,
-        padding: '8px 11px',
+        padding: '10px 13px',
         fontSize: 13,
         outline: 'none',
         cursor: 'pointer',
@@ -71,57 +97,57 @@ function Select({ value, onChange, children, style }) {
         WebkitAppearance: 'none',
         transition: 'border-color .15s, box-shadow .15s',
         boxSizing: 'border-box',
-        ...style,
       }}
-      onFocus={e => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,.15)' }}
-      onBlur={e => { e.target.style.borderColor = '#cbd5e1'; e.target.style.boxShadow = 'none' }}
     >
       {children}
     </select>
   )
 }
 
-// Segmented control
 function Seg({ options, value, onChange }) {
   return (
     <div style={{
       display: 'flex',
-      background: '#f1f5f9',
-      borderRadius: 8,
+      background: D.surfaceL1,
+      borderRadius: 9,
       padding: 3,
-      gap: 2,
-      border: '1px solid #e2e8f0',
+      gap: 3,
+      border: `1px solid ${D.border}`,
     }}>
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          type="button"
-          onClick={() => onChange(opt.value)}
-          style={{
-            flex: 1,
-            padding: '6px 10px',
-            fontSize: 12,
-            fontWeight: value === opt.value ? 700 : 500,
-            borderRadius: 6,
-            transition: 'all .15s',
-            color: value === opt.value ? '#1e40af' : '#475569',
-            background: value === opt.value ? '#fff' : 'transparent',
-            boxShadow: value === opt.value ? '0 1px 4px rgba(0,0,0,.12)' : 'none',
-            border: value === opt.value ? '1px solid #dbeafe' : '1px solid transparent',
-          }}
-        >
-          {opt.label}
-        </button>
-      ))}
+      {options.map(opt => {
+        const active = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            style={{
+              flex: 1,
+              minHeight: 36,
+              padding: '7px 12px',
+              fontSize: 12,
+              fontWeight: active ? 700 : 500,
+              borderRadius: 7,
+              transition: 'all .15s',
+              color: active ? '#fff' : D.textMuted,
+              background: active ? D.accent : 'transparent',
+              boxShadow: active ? '0 1px 6px rgba(59,130,246,0.35)' : 'none',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
 
-// Collapsible section
 function Section({ title, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div style={{ borderTop: '1px solid #e2e8f0' }}>
+    <div style={{ borderTop: `1px solid ${D.borderSub}` }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -130,24 +156,38 @@ function Section({ title, children, defaultOpen = false }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '9px 0',
+          padding: '11px 0',
           cursor: 'pointer',
           background: 'none',
           border: 'none',
+          minHeight: 44,
         }}
       >
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+        <span style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: D.textMuted,
+          textTransform: 'uppercase',
+          letterSpacing: '.08em',
+        }}>
           {title}
         </span>
         <ChevronDown
           size={13}
-          style={{ color: '#94a3b8', transition: 'transform .15s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', flexShrink: 0 }}
+          style={{
+            color: D.textMuted,
+            transition: 'transform .15s',
+            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+            flexShrink: 0,
+          }}
         />
       </button>
       {open && <div style={{ paddingBottom: 14 }}>{children}</div>}
     </div>
   )
 }
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export default function ConnectModal({ open, onClose, onConnected }) {
   const [modalTab,      setModalTab]      = useState('login')
@@ -213,39 +253,46 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent style={{ maxWidth: 520, overflow: 'hidden', padding: 0 }}>
+      <DialogContent style={{ maxWidth: 520, padding: 0, overflow: 'hidden' }}>
 
-        {/* ── Dark header ── */}
+        {/* ── Header ── */}
         <div style={{
-          background: 'var(--header-bg)',
-          padding: '18px 22px 16px',
+          background: 'linear-gradient(135deg, #1e3a5f 0%, #1e2d4a 100%)',
+          borderBottom: `1px solid ${D.borderSub}`,
+          padding: '20px 24px 18px',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
+          gap: 14,
         }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 9,
-            background: 'rgba(255,255,255,.12)',
+            width: 40, height: 40, borderRadius: 10,
+            background: 'rgba(59,130,246,0.2)',
+            border: '1px solid rgba(59,130,246,0.3)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <Server size={18} style={{ color: '#93c5fd' }} />
+            <Server size={19} style={{ color: '#93c5fd' }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: D.text, lineHeight: 1.3 }}>
               Connect to SQL Server
             </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+            <div style={{ fontSize: 12, color: D.textMuted, marginTop: 2 }}>
               Add a new monitored instance
             </div>
           </div>
           <DialogClose asChild>
             <button
-              style={{ color: '#64748b', borderRadius: 7, padding: '4px 6px', lineHeight: 1, transition: 'all .15s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; e.currentTarget.style.color = '#e2e8f0' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b' }}
+              style={{
+                width: 32, height: 32,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: D.textMuted, borderRadius: 7, border: 'none',
+                background: 'transparent', cursor: 'pointer', transition: 'all .15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = D.text }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = D.textMuted }}
             >
-              <X size={16} />
+              <X size={15} />
             </button>
           </DialogClose>
         </div>
@@ -253,42 +300,45 @@ export default function ConnectModal({ open, onClose, onConnected }) {
         {/* ── Tabs ── */}
         <div style={{
           display: 'flex',
-          background: '#f8fafc',
-          borderBottom: '1px solid #e2e8f0',
-          padding: '0 22px',
-          gap: 0,
+          background: D.surfaceL1,
+          borderBottom: `1px solid ${D.borderSub}`,
+          padding: '0 24px',
         }}>
           {[
             { key: 'login',   label: 'Login' },
             { key: 'connstr', label: 'Connection String' },
-          ].map(t => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setModalTab(t.key)}
-              style={{
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: modalTab === t.key ? 700 : 500,
-                color: modalTab === t.key ? '#1e40af' : '#64748b',
-                borderBottom: modalTab === t.key ? '2px solid #3b82f6' : '2px solid transparent',
-                marginBottom: -1,
-                transition: 'all .15s',
-                background: 'none',
-                border: 'none',
-                borderBottomWidth: 2,
-                borderBottomStyle: 'solid',
-                borderBottomColor: modalTab === t.key ? '#3b82f6' : 'transparent',
-                cursor: 'pointer',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
+          ].map(t => {
+            const active = modalTab === t.key
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setModalTab(t.key)}
+                style={{
+                  padding: '11px 14px',
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? '#60a5fa' : D.textMuted,
+                  borderBottom: `2px solid ${active ? '#3b82f6' : 'transparent'}`,
+                  marginBottom: -1,
+                  background: 'none',
+                  border: 'none',
+                  borderBottomWidth: 2,
+                  borderBottomStyle: 'solid',
+                  borderBottomColor: active ? '#3b82f6' : 'transparent',
+                  cursor: 'pointer',
+                  transition: 'all .15s',
+                  minHeight: 44,
+                }}
+              >
+                {t.label}
+              </button>
+            )
+          })}
         </div>
 
-        {/* ── Body ── */}
-        <div style={{ padding: '20px 22px 22px', background: '#fff' }}>
+        {/* ── Form body ── */}
+        <div style={{ padding: '22px 24px 24px', background: D.surface, overflowY: 'auto', maxHeight: '72vh' }}>
           <form
             onSubmit={modalTab === 'login' ? handleLoginSubmit : e => { e.preventDefault(); handleConnStrSubmit() }}
             autoComplete="off"
@@ -300,10 +350,13 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {/* Connection group */}
                 <div style={{ marginBottom: 4 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: D.textMuted,
+                    textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12,
+                  }}>
                     Connection
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div>
                       <Label>Server</Label>
                       <Input
@@ -313,10 +366,13 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                         required
                       />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <div>
                         <Label>
-                          Label <span style={{ fontWeight: 400, fontSize: 10, color: '#94a3b8', textTransform: 'none' }}>(optional)</span>
+                          Label{' '}
+                          <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10, color: D.textMuted }}>
+                            (optional)
+                          </span>
                         </Label>
                         <Input
                           value={label}
@@ -338,7 +394,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {/* Authentication */}
                 <Section title="Authentication" defaultOpen={true}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div>
                       <Label>Auth Type</Label>
                       <Seg
@@ -351,7 +407,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                       />
                     </div>
                     {authType === 'sql' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <div>
                           <Label>Username</Label>
                           <Input
@@ -378,8 +434,8 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {/* Security */}
                 <Section title="Security">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'end' }}>
                       <div>
                         <Label>Encryption</Label>
                         <Select value={encrypt} onChange={e => setEncrypt(e.target.value)}>
@@ -388,15 +444,20 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                           <option value="strict">Strict (SQL 2022 / Azure)</option>
                         </Select>
                       </div>
-                      <div style={{ paddingBottom: 3 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                      <div style={{ paddingBottom: 2 }}>
+                        <label style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          cursor: 'pointer', userSelect: 'none', minHeight: 44,
+                        }}>
                           <input
                             type="checkbox"
                             checked={trustCert}
                             onChange={e => setTrustCert(e.target.checked)}
-                            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#3b82f6' }}
+                            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: D.accent }}
                           />
-                          <span style={{ fontSize: 13, color: '#334155', fontWeight: 500 }}>Trust Certificate</span>
+                          <span style={{ fontSize: 13, color: D.textSub, fontWeight: 500 }}>
+                            Trust Certificate
+                          </span>
                         </label>
                       </div>
                     </div>
@@ -415,7 +476,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {/* Advanced */}
                 <Section title="Advanced">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     <div>
                       <Label>Application Intent</Label>
                       <Seg
@@ -429,7 +490,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                     </div>
                     <div>
                       <Label>Tab Color</Label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                         {TAB_COLORS.map(c => (
                           <button
                             key={c}
@@ -437,42 +498,51 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                             onClick={() => setSelectedColor(c)}
                             title={c}
                             style={{
-                              width: 20, height: 20,
+                              width: 24, height: 24,
                               borderRadius: '50%',
                               background: c,
-                              border: selectedColor === c ? `2px solid #0f172a` : '2px solid transparent',
+                              border: selectedColor === c ? `2px solid #fff` : '2px solid transparent',
                               outline: selectedColor === c ? `2px solid ${c}` : 'none',
                               outlineOffset: 2,
                               cursor: 'pointer',
                               transition: 'transform .12s',
-                              transform: selectedColor === c ? 'scale(1.25)' : 'scale(1)',
+                              transform: selectedColor === c ? 'scale(1.2)' : 'scale(1)',
                             }}
                           />
                         ))}
                         <span style={{
                           marginLeft: 4,
-                          display: 'inline-block',
-                          width: 20, height: 20,
-                          borderRadius: 5,
-                          background: selectedColor,
-                          border: '2px solid rgba(0,0,0,.12)',
-                          flexShrink: 0,
-                        }} />
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          color: D.textMuted,
+                        }}>
+                          <span style={{
+                            width: 22, height: 22, borderRadius: 6,
+                            background: selectedColor,
+                            border: '1.5px solid rgba(255,255,255,0.15)',
+                            display: 'inline-block', flexShrink: 0,
+                          }} />
+                          {selectedColor}
+                        </span>
                       </div>
                     </div>
                   </div>
                 </Section>
 
+                {/* Error */}
                 {error && (
                   <div style={{
-                    marginTop: 12,
-                    background: '#fef2f2',
-                    border: '1px solid #fecaca',
-                    color: '#dc2626',
+                    marginTop: 14,
+                    background: D.dangerBg,
+                    border: `1px solid ${D.dangerBorder}`,
+                    color: '#fca5a5',
                     borderRadius: 8,
-                    padding: '8px 12px',
+                    padding: '10px 14px',
                     fontSize: 12,
                     fontWeight: 500,
+                    lineHeight: 1.5,
                   }}>
                     {error}
                   </div>
@@ -483,16 +553,21 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                   disabled={loading}
                   style={{
                     width: '100%',
-                    marginTop: 16,
+                    marginTop: 18,
+                    minHeight: 44,
                     padding: '11px',
                     borderRadius: 10,
                     fontSize: 14,
                     fontWeight: 700,
                     color: '#fff',
-                    background: loading ? '#94a3b8' : 'var(--header-bg)',
+                    background: loading
+                      ? D.surfaceL2
+                      : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                    border: loading ? `1px solid ${D.border}` : '1px solid rgba(96,165,250,0.3)',
+                    boxShadow: loading ? 'none' : '0 4px 14px rgba(37,99,235,0.4)',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'background .15s',
-                    letterSpacing: '.01em',
+                    transition: 'all .15s',
+                    letterSpacing: '.02em',
                   }}
                 >
                   {loading ? 'Connecting…' : 'Connect'}
@@ -502,8 +577,8 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
             {/* ── Connection string tab ── */}
             {modalTab === 'connstr' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <p style={{ fontSize: 12, color: D.textMuted, margin: 0 }}>
                   ADO.NET connection strings are supported.
                 </p>
                 <textarea
@@ -511,28 +586,28 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                   value={connStr}
                   onChange={e => setConnStr(e.target.value)}
                   placeholder="Paste connection string here…"
+                  onFocus={e => { e.target.style.borderColor = D.accent; e.target.style.boxShadow = `0 0 0 3px ${D.accentRing}` }}
+                  onBlur={e => { e.target.style.borderColor = D.border; e.target.style.boxShadow = 'none' }}
                   style={{
                     width: '100%',
-                    background: '#fff',
-                    border: '1.5px solid #cbd5e1',
-                    color: '#0f172a',
+                    background: D.surfaceL1,
+                    border: `1px solid ${D.border}`,
+                    color: D.text,
                     borderRadius: 8,
-                    padding: '8px 12px',
+                    padding: '10px 13px',
                     fontSize: 12,
                     fontFamily: "'Cascadia Code','Fira Code','Consolas',monospace",
-                    lineHeight: 1.6,
+                    lineHeight: 1.7,
                     outline: 'none',
                     resize: 'none',
                     boxSizing: 'border-box',
                     transition: 'border-color .15s, box-shadow .15s',
                   }}
-                  onFocus={e => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,.15)' }}
-                  onBlur={e => { e.target.style.borderColor = '#cbd5e1'; e.target.style.boxShadow = 'none' }}
                 />
 
                 <div>
                   <Label>Tab Color</Label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                     {TAB_COLORS.map(c => (
                       <button
                         key={c}
@@ -540,15 +615,15 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                         onClick={() => setSelectedColor(c)}
                         title={c}
                         style={{
-                          width: 20, height: 20,
+                          width: 24, height: 24,
                           borderRadius: '50%',
                           background: c,
-                          border: selectedColor === c ? `2px solid #0f172a` : '2px solid transparent',
+                          border: selectedColor === c ? `2px solid #fff` : '2px solid transparent',
                           outline: selectedColor === c ? `2px solid ${c}` : 'none',
                           outlineOffset: 2,
                           cursor: 'pointer',
                           transition: 'transform .12s',
-                          transform: selectedColor === c ? 'scale(1.25)' : 'scale(1)',
+                          transform: selectedColor === c ? 'scale(1.2)' : 'scale(1)',
                         }}
                       />
                     ))}
@@ -557,11 +632,11 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
                 {error && (
                   <div style={{
-                    background: '#fef2f2',
-                    border: '1px solid #fecaca',
-                    color: '#dc2626',
+                    background: D.dangerBg,
+                    border: `1px solid ${D.dangerBorder}`,
+                    color: '#fca5a5',
                     borderRadius: 8,
-                    padding: '8px 12px',
+                    padding: '10px 14px',
                     fontSize: 12,
                     fontWeight: 500,
                   }}>
@@ -574,14 +649,19 @@ export default function ConnectModal({ open, onClose, onConnected }) {
                   disabled={loading}
                   style={{
                     width: '100%',
+                    minHeight: 44,
                     padding: '11px',
                     borderRadius: 10,
                     fontSize: 14,
                     fontWeight: 700,
                     color: '#fff',
-                    background: loading ? '#94a3b8' : 'var(--header-bg)',
+                    background: loading
+                      ? D.surfaceL2
+                      : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                    border: loading ? `1px solid ${D.border}` : '1px solid rgba(96,165,250,0.3)',
+                    boxShadow: loading ? 'none' : '0 4px 14px rgba(37,99,235,0.4)',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'background .15s',
+                    transition: 'all .15s',
                   }}
                 >
                   {loading ? 'Connecting…' : 'Connect'}
