@@ -10,12 +10,11 @@ import WidgetSidebar from './components/WidgetSidebar'
 
 export default function App() {
   const { state, dispatch } = useApp()
-  const [showConnect,   setShowConnect]   = useState(false)
-  const [showWidgets,   setShowWidgets]   = useState(false)
-  const [reconnecting,  setReconnecting]  = useState(false)
+  const [showConnect,    setShowConnect]    = useState(false)
+  const [showWidgets,    setShowWidgets]    = useState(false)
+  const [reconnecting,   setReconnecting]   = useState(false)
   const [reconnectLabel, setReconnectLabel] = useState('')
-  const [prefill,       setPrefill]       = useState(null)
-  const [prefillError,  setPrefillError]  = useState('')
+  const [prefillError,   setPrefillError]   = useState('')
   const socketRef = useSocket(dispatch, state.connections)
 
   // Apply palette on mount and when it changes
@@ -71,9 +70,14 @@ export default function App() {
         dispatch({ type: 'ADD_CONN', conn })
       })
       .catch(err => {
-        // Evict placeholder, show ConnectModal pre-filled
+        // Clear all stale credentials immediately
+        try {
+          localStorage.removeItem('sqlmon-saved-conn')
+          localStorage.removeItem('sqlmon-conn-id')
+          sessionStorage.removeItem('sqlmon-saved-pass')
+        } catch {}
+        // Evict placeholder, open clean login form
         dispatch({ type: 'HYDRATE_FAILED', connId: clientId })
-        setPrefill(saved)
         setPrefillError(`Auto-reconnect failed: ${err.message}`)
         setShowConnect(true)
       })
@@ -97,7 +101,6 @@ export default function App() {
       }
     }
     setShowConnect(false)
-    setPrefill(null)
     setPrefillError('')
   }
 
@@ -150,7 +153,7 @@ export default function App() {
       )}
 
       <main className="p-6" style={{ maxWidth: 1920, margin: '0 auto' }}>
-        {connIds.length === 0 ? (
+        {reconnecting ? null : connIds.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <svg className="w-16 h-16 text-slate-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7h16M4 12h16M4 17h16" />
@@ -172,9 +175,8 @@ export default function App() {
 
       <ConnectModal
         open={showConnect}
-        onClose={() => setShowConnect(false)}
+        onClose={() => { setShowConnect(false); setPrefillError('') }}
         onConnected={handleConnected}
-        prefill={prefill}
         prefillError={prefillError}
       />
     </div>

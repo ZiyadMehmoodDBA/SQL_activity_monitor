@@ -27,6 +27,7 @@ export const WIDGET_REGISTRY = [
   { id: 'who_is_active',      label: 'sp_WhoIsActive',           group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'blocking',           label: 'Blocking Chains',          group: 'section', category: 'Blocking',    defaultEnabled: true },
   { id: 'deadlocks',          label: 'Deadlock History',         group: 'section', category: 'Blocking',    defaultEnabled: true },
+  { id: 'query_profiler',     label: 'Query Profiler',           group: 'section', category: 'Queries',     defaultEnabled: true },
 ]
 
 export const PANEL_CATEGORIES = ['Performance', 'Memory', 'SQL Agent', 'Sessions']

@@ -21,6 +21,16 @@ export const TABLE_COLS = {
     { key: 'max_wait_time_ms',     label: 'Max Wait (ms)',   type: 'num' },
     { key: 'signal_wait_time_ms',  label: 'Signal (ms)',     type: 'num' },
   ],
+  currentWaits: [
+    { key: 'wait_type',        label: 'Wait Type',       type: 'str' },
+    { key: 'category',         label: 'Category',        type: 'str' },
+    { key: 'session_count',    label: 'Sessions',        type: 'num' },
+    { key: 'avg_wait_ms',      label: 'Avg Wait (ms)',   type: 'num' },
+    { key: 'max_wait_ms',      label: 'Max Wait (ms)',   type: 'num' },
+    { key: 'total_wait_ms',    label: 'Total Wait (ms)', type: 'num' },
+    { key: 'sample_blocker_id',label: 'Blocker',         type: 'zero' },
+    { key: 'sample_database',  label: 'Database',        type: 'str' },
+  ],
   fileio: [
     { key: 'database_name',     label: 'Database',          type: 'str'   },
     { key: 'file_name',         label: 'File',              type: 'trunc' },

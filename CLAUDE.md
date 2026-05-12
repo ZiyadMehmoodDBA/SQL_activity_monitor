@@ -51,3 +51,9 @@ Configured via `.env`:
 - `AUTH_TYPE=sql` — SQL auth, reads `DB_USER` / `DB_PASS`
 
 Required SQL Server permission: `VIEW SERVER STATE`
+
+## AI-generated SQL review policy
+
+Per `devInstruction.md`: all AI-generated SQL must be manually reviewed before `npm start`. This includes queries in `server.js` poll loop, kill endpoints, and any new DMV joins. Do not execute AI-generated SQL against a production instance without review.
+
+Kill endpoints (`/kill`, `/kill-sleeping`) are disabled by default. Requires `ALLOW_KILL=true` in `.env`.

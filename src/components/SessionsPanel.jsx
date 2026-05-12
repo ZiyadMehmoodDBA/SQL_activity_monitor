@@ -84,6 +84,10 @@ function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, sc
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const expandedGroups = conn?.expandedSessionGroups || new Set()
+  const [killTarget,   setKillTarget]   = useState(null)   // { sessionId, login, host }
+  const [killing,      setKilling]      = useState(false)
+  const [killError,    setKillError]    = useState(null)
+  const [killConfirmed,setKillConfirmed]= useState(false)
 
   // Memoize group building — only reruns when processes array or expanded set changes,
   // not on every 2s metrics update that doesn't affect sessions.
@@ -127,15 +131,25 @@ function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, sc
     overscan: 8,
   })
 
-  async function killSession(sessionId) {
-    if (!window.confirm(`Kill SPID ${sessionId}?`)) return
+  async function confirmKill() {
+    if (!killTarget) return
+    setKilling(true)
+    setKillError(null)
     try {
-      await fetch(`/api/connections/${connId}/kill`, {
+      const r = await fetch(`/api/connections/${connId}/kill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId: killTarget.sessionId }),
       })
-    } catch (err) { alert('Kill failed: ' + err.message) }
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      setKillTarget(null)
+      setKillConfirmed(false)
+    } catch (err) {
+      setKillError(err.message)
+    } finally {
+      setKilling(false)
+    }
   }
 
   const blocked  = groups.filter(g => g.isBlocked).length
@@ -143,6 +157,60 @@ function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, sc
 
   return (
     <>
+      {/* ── Kill confirm dialog ── */}
+      {killTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--input-border)',
+            borderRadius: 12, padding: '24px 28px', maxWidth: 400, width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              Kill session {killTarget.sessionId}?
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.5 }}>
+              This will immediately terminate SPID <strong>{killTarget.sessionId}</strong>
+              {killTarget.login ? ` (${killTarget.login}` : ''}
+              {killTarget.host  ? ` @ ${killTarget.host})` : (killTarget.login ? ')' : '')}.
+              Any open transaction will be rolled back.
+            </div>
+            {killError && (
+              <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(239,68,68,.12)',
+                border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>
+                {killError}
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 18, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={killConfirmed}
+                onChange={e => setKillConfirmed(e.target.checked)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                I understand this terminates a session on a <strong>production</strong> server and cannot be undone.
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setKillTarget(null); setKillError(null); setKillConfirmed(false) }}
+                disabled={killing}
+                style={{ padding: '7px 16px', borderRadius: 7, border: '1px solid var(--input-border)',
+                  background: 'var(--input-bg)', color: 'var(--text-secondary)', fontSize: 13,
+                  fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                onClick={confirmKill}
+                disabled={killing || !killConfirmed}
+                style={{ padding: '7px 16px', borderRadius: 7, border: 'none',
+                  background: killing || !killConfirmed ? '#9ca3af' : '#dc2626', color: '#fff', fontSize: 13,
+                  fontWeight: 700, cursor: (killing || !killConfirmed) ? 'not-allowed' : 'pointer' }}>
+                {killing ? 'Killing…' : 'Kill Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Header ── */}
       <div className="flex items-center px-4 py-2.5 flex-shrink-0" style={{ borderBottom: '1px solid var(--divider)' }}>
         <svg className="w-3.5 h-3.5 mr-2 flex-shrink-0" style={{ color: 'var(--text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -198,7 +266,7 @@ function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, sc
                       onToggle={() => dispatch({ type: 'TOGGLE_SESSION_GROUP', connId, key: item.key })}
                     />
                   ) : (
-                    <SessionRow session={item.session} onKill={() => killSession(item.session.session_id)} />
+                    <SessionRow session={item.session} onKill={() => setKillTarget({ sessionId: item.session.session_id, login: item.session.login_name, host: item.session.host_name })} />
                   )}
                 </div>
               )

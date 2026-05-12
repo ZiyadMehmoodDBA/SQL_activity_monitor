@@ -14,9 +14,73 @@ import DbSizes from './DbSizes'
 import DbSizeTrend from './DbSizeTrend'
 import DriveMonitor from './DriveMonitor'
 import WhoIsActive from './WhoIsActive'
+import QueryProfiler from './QueryProfiler'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
+
+// ── Category metadata for current waits severity panel ───────────────────────
+const WAIT_CATEGORY_META = {
+  locking:      { label: 'Locking',      color: '#ef4444', bg: 'rgba(239,68,68,.15)',    tip: 'Sessions blocked by row/page/object locks. Check blocking chains.' },
+  io:           { label: 'Disk I/O',     color: '#f97316', bg: 'rgba(249,115,22,.15)',   tip: 'Waiting on physical I/O. Check disk throughput and file placement.' },
+  log_io:       { label: 'Log I/O',      color: '#f59e0b', bg: 'rgba(245,158,11,.15)',   tip: 'Transaction log writes are a bottleneck. Check log disk or VLF count.' },
+  memory:       { label: 'Memory',       color: '#dc2626', bg: 'rgba(220,38,38,.15)',    tip: 'Memory grants pending or memory allocation contention. Check PLE and max server memory.' },
+  latch:        { label: 'Latch',        color: '#a855f7', bg: 'rgba(168,85,247,.15)',   tip: 'Buffer pool page latch contention. Could be tempdb or hot pages.' },
+  parallelism:  { label: 'Parallelism',  color: '#3b82f6', bg: 'rgba(59,130,246,.12)',   tip: 'Parallel query coordination. Usually benign; review MAXDOP if excessive.' },
+  network:      { label: 'Network',      color: '#06b6d4', bg: 'rgba(6,182,212,.12)',    tip: 'Client not consuming results fast enough (ASYNC_NETWORK_IO). App-side issue.' },
+  cpu_pressure: { label: 'CPU/Threads',  color: '#dc2626', bg: 'rgba(220,38,38,.15)',    tip: 'THREADPOOL wait — worker threads exhausted. Immediate attention required.' },
+  other:        { label: 'Other',        color: '#64748b', bg: 'rgba(100,116,139,.12)',  tip: 'Miscellaneous waits. Check wait_type for details.' },
+}
+
+function CurrentWaitsPanel({ rows }) {
+  if (!rows || rows.length === 0) return null
+  return (
+    <div style={{ padding: '10px 14px 4px', borderBottom: '1px solid var(--divider)' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
+        Live Wait Breakdown
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {rows.map(r => {
+          const meta = WAIT_CATEGORY_META[r.category] || WAIT_CATEGORY_META.other
+          return (
+            <div key={r.wait_type} title={`${r.wait_type}\n${meta.tip}\nMax wait: ${r.max_wait_ms?.toLocaleString()} ms`}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px',
+                borderRadius: 6, background: meta.bg, border: `1px solid ${meta.color}33`,
+                cursor: 'default', fontSize: 11 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, color: meta.color }}>{r.session_count}</span>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{r.wait_type}</span>
+              {r.sample_blocker_id > 0 && (
+                <span style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,.18)', borderRadius: 3, padding: '1px 4px' }}>
+                  SPID {r.sample_blocker_id}
+                </span>
+              )}
+              <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+                {r.avg_wait_ms >= 1000 ? `${(r.avg_wait_ms/1000).toFixed(1)}s avg` : `${Math.round(r.avg_wait_ms)}ms avg`}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
+        {Object.entries(
+          rows.reduce((acc, r) => {
+            const cat = r.category || 'other'
+            acc[cat] = (acc[cat] || 0) + r.session_count
+            return acc
+          }, {})
+        ).sort((a,b) => b[1]-a[1]).map(([cat, count]) => {
+          const meta = WAIT_CATEGORY_META[cat] || WAIT_CATEGORY_META.other
+          return (
+            <span key={cat} style={{ fontSize: 10, color: meta.color, fontWeight: 600 }}>
+              {meta.label}: {count}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 // ── Module-level components (stable identity, no remount on Dashboard re-render) ──
 
@@ -86,8 +150,19 @@ export default memo(function Dashboard({ connId }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
-  const [killDialog, setKillDialog] = useState(null)
-  const [killResult, setKillResult] = useState(null)
+  const [killDialog,     setKillDialog]     = useState(null)   // { count } for kill-all-sleeping
+  const [killConfirmed,  setKillConfirmed]  = useState(false)
+  const [singleKill,     setSingleKill]     = useState(null)   // { sessionId, login, host }
+  const [singleConfirmed,setSingleConfirmed]= useState(false)
+  const [singleKilling,  setSingleKilling]  = useState(false)
+  const [singleKillErr,  setSingleKillErr]  = useState(null)
+  const [killResult,     setKillResult]     = useState(null)
+  const killResultTimer = useRef(null)
+  const showKillResult = useCallback(result => {
+    clearTimeout(killResultTimer.current)
+    setKillResult(result)
+    killResultTimer.current = setTimeout(() => setKillResult(null), 5000)
+  }, [])
 
   if (!conn) return null
 
@@ -149,22 +224,45 @@ export default memo(function Dashboard({ connId }) {
   // ── Kill sleeping ─────────────────────────────────────────────────────────
   const killAllSleeping = useCallback(() => {
     const sleeping = (m?.processes || []).filter(r => String(r.status).toLowerCase() === 'sleeping')
-    if (sleeping.length === 0) { setKillResult({ error: 'No sleeping sessions to kill.' }); return }
+    if (sleeping.length === 0) { showKillResult({ error: 'No sleeping sessions to kill.' }); return }
     setKillResult(null)
     setKillDialog({ count: sleeping.length })
   }, [m?.processes])
 
   const confirmKillSleeping = useCallback(async () => {
     setKillDialog(null)
+    setKillConfirmed(false)
     try {
       const res  = await fetch(`/api/connections/${connId}/kill-sleeping`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setKillResult({ killed: data.killed })
+      showKillResult({ killed: data.killed })
     } catch (err) {
-      setKillResult({ error: err.message })
+      showKillResult({ error: err.message })
     }
-  }, [connId])
+  }, [connId, showKillResult])
+
+  const confirmSingleKill = useCallback(async () => {
+    if (!singleKill) return
+    setSingleKilling(true)
+    setSingleKillErr(null)
+    try {
+      const res  = await fetch(`/api/connections/${connId}/kill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: singleKill.sessionId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setSingleKill(null)
+      setSingleConfirmed(false)
+      showKillResult({ killed: 1 })
+    } catch (err) {
+      setSingleKillErr(err.message)
+    } finally {
+      setSingleKilling(false)
+    }
+  }, [connId, singleKill, showKillResult])
 
   // ── Section renderer ──────────────────────────────────────────────────────
   function renderSection(id) {
@@ -210,13 +308,9 @@ export default memo(function Dashboard({ connId }) {
               renderExtraCell={row => (
                 String(row.status || '').toLowerCase() === 'sleeping'
                   ? <button className="kill-btn" onClick={() => {
-                      if (window.confirm(`Kill SPID ${row.session_id}?`)) {
-                        fetch(`/api/connections/${connId}/kill`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ sessionId: row.session_id }),
-                        })
-                      }
+                      setSingleKill({ sessionId: row.session_id, login: row.login_name, host: row.host_name })
+                      setSingleConfirmed(false)
+                      setSingleKillErr(null)
                     }}>Kill</button>
                   : null
               )}
@@ -225,8 +319,10 @@ export default memo(function Dashboard({ connId }) {
         )
       case 'resource_waits':
         return (
-          <CollapsibleSection key={id} connId={connId} sectionId="waits" title="Resource Waits" badge={<SectionBadge count={m?.resourceWaits?.length || 0} />}>
-            <VirtualTable rows={sortedWaits} columns={TABLE_COLS.waits} height={280}
+          <CollapsibleSection key={id} connId={connId} sectionId="waits" title="Resource Waits"
+            badge={<SectionBadge count={m?.currentWaits?.length ? m.currentWaits.reduce((s,r)=>s+r.session_count,0) : (m?.resourceWaits?.length || 0)} alertWhen={m?.currentWaits?.length > 0} />}>
+            <CurrentWaitsPanel rows={m?.currentWaits} />
+            <VirtualTable rows={sortedWaits} columns={TABLE_COLS.waits} height={240}
               sortCol={conn.sortState.waits.col} sortDir={conn.sortState.waits.dir} onSort={col => handleSort('waits', col)} />
           </CollapsibleSection>
         )
@@ -269,6 +365,8 @@ export default memo(function Dashboard({ connId }) {
               rowStyle={DEADLOCK_ROW_STYLE} />
           </CollapsibleSection>
         )
+      case 'query_profiler':
+        return <QueryProfiler key={id} connId={connId} />
       default:
         return null
     }
@@ -287,10 +385,22 @@ export default memo(function Dashboard({ connId }) {
               Kill <strong style={{ color: 'var(--text-primary)' }}>{killDialog?.count}</strong> sleeping session{killDialog?.count !== 1 ? 's' : ''} on{' '}
               <strong style={{ color: 'var(--text-primary)' }}>{conn.label}</strong>?
             </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>This cannot be undone.</p>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>This cannot be undone.</p>
+            <label className="flex items-start gap-2 mb-6 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={killConfirmed}
+                onChange={e => setKillConfirmed(e.target.checked)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
+              />
+              <span className="text-xs" style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                I understand this terminates sessions on a <strong>production</strong> server and cannot be undone.
+              </span>
+            </label>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
                 <button
+                  onClick={() => setKillConfirmed(false)}
                   className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
                   style={{ background: 'var(--divider)', border: '1px solid var(--input-border)', color: 'var(--text-secondary)' }}
                 >
@@ -299,8 +409,9 @@ export default memo(function Dashboard({ connId }) {
               </DialogClose>
               <button
                 onClick={confirmKillSleeping}
-                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                style={{ background: '#dc2626' }}
+                disabled={!killConfirmed}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity"
+                style={{ background: killConfirmed ? '#dc2626' : '#9ca3af', cursor: killConfirmed ? 'pointer' : 'not-allowed' }}
               >
                 Kill Sessions
               </button>
@@ -308,6 +419,61 @@ export default memo(function Dashboard({ connId }) {
           </DialogBody>
         </DialogContent>
       </Dialog>
+
+      {/* Single session kill — confirm dialog */}
+      {singleKill && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--input-border)',
+            borderRadius: 12, padding: '24px 28px', maxWidth: 400, width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              Kill session {singleKill.sessionId}?
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+              Terminate SPID <strong>{singleKill.sessionId}</strong>
+              {singleKill.login ? ` (${singleKill.login}` : ''}
+              {singleKill.host  ? ` @ ${singleKill.host})` : (singleKill.login ? ')' : '')}.
+              Any open transaction will be rolled back.
+            </div>
+            {singleKillErr && (
+              <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(239,68,68,.12)',
+                border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>
+                {singleKillErr}
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 18, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={singleConfirmed}
+                onChange={e => setSingleConfirmed(e.target.checked)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                I understand this terminates a session on a <strong>production</strong> server and cannot be undone.
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setSingleKill(null); setSingleKillErr(null); setSingleConfirmed(false) }}
+                disabled={singleKilling}
+                style={{ padding: '7px 16px', borderRadius: 7, border: '1px solid var(--input-border)',
+                  background: 'var(--input-bg)', color: 'var(--text-secondary)', fontSize: 13,
+                  fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                onClick={confirmSingleKill}
+                disabled={singleKilling || !singleConfirmed}
+                style={{ padding: '7px 16px', borderRadius: 7, border: 'none',
+                  background: singleKilling || !singleConfirmed ? '#9ca3af' : '#dc2626', color: '#fff', fontSize: 13,
+                  fontWeight: 700, cursor: (singleKilling || !singleConfirmed) ? 'not-allowed' : 'pointer' }}>
+                {singleKilling ? 'Killing…' : 'Kill Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Kill sleeping — result toast */}
       {killResult && (

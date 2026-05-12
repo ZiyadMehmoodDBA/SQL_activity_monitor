@@ -58,6 +58,10 @@ export default function WhoIsActive({ connId }) {
   const [autoInterval, setAutoInterval] = useState(0)
   const [expanded,     setExpanded]     = useState(new Set())
   const [search,       setSearch]       = useState('')
+  const [killTarget,   setKillTarget]   = useState(null)   // { spid, login, host }
+  const [killing,      setKilling]      = useState(false)
+  const [killError,    setKillError]    = useState(null)
+  const [killConfirmed,setKillConfirmed]= useState(false)
   const intervalRef = useRef(null)
 
   const doFetch = useCallback(async () => {
@@ -75,6 +79,29 @@ export default function WhoIsActive({ connId }) {
       setLoading(false)
     }
   }, [connId])
+
+  const doKill = useCallback(async () => {
+    if (!killTarget) return
+    setKilling(true)
+    setKillError(null)
+    try {
+      const r = await fetch(`/api/connections/${connId}/kill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: killTarget.spid }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      setKillTarget(null)
+      setKillConfirmed(false)
+      // Refresh immediately so the killed session disappears
+      await doFetch()
+    } catch (e) {
+      setKillError(e.message)
+    } finally {
+      setKilling(false)
+    }
+  }, [connId, killTarget, doFetch])
 
   useEffect(() => {
     clearInterval(intervalRef.current)
@@ -125,6 +152,60 @@ export default function WhoIsActive({ connId }) {
 
   return (
     <div className="mc overflow-hidden">
+      {/* ── Kill confirm dialog ── */}
+      {killTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--input-border)',
+            borderRadius: 12, padding: '24px 28px', maxWidth: 400, width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              Kill session {killTarget.spid}?
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.5 }}>
+              This will immediately terminate SPID <strong>{killTarget.spid}</strong>
+              {killTarget.login ? ` (${killTarget.login}` : ''}
+              {killTarget.host  ? ` @ ${killTarget.host})` : (killTarget.login ? ')' : '')}.
+              Any open transaction will be rolled back.
+            </div>
+            {killError && (
+              <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(239,68,68,.12)',
+                border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>
+                {killError}
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 18, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={killConfirmed}
+                onChange={e => setKillConfirmed(e.target.checked)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                I understand this terminates a session on a <strong>production</strong> server and cannot be undone.
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setKillTarget(null); setKillError(null); setKillConfirmed(false) }}
+                disabled={killing}
+                style={{ padding: '7px 16px', borderRadius: 7, border: '1px solid var(--input-border)',
+                  background: 'var(--input-bg)', color: 'var(--text-secondary)', fontSize: 13,
+                  fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                onClick={doKill}
+                disabled={killing || !killConfirmed}
+                style={{ padding: '7px 16px', borderRadius: 7, border: 'none',
+                  background: killing || !killConfirmed ? '#9ca3af' : '#dc2626', color: '#fff', fontSize: 13,
+                  fontWeight: 700, cursor: (killing || !killConfirmed) ? 'not-allowed' : 'pointer' }}>
+                {killing ? 'Killing…' : 'Kill Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-5 py-3 gap-3 flex-wrap">
         <button
@@ -237,6 +318,7 @@ export default function WhoIsActive({ connId }) {
                 <thead>
                   <tr>
                     <th className="wia-th" style={{ width: 28 }}></th>
+                    <th className="wia-th" style={{ width: 44 }}></th>
                     <th className="wia-th" style={{ width: 52 }}>SPID</th>
                     <th className="wia-th" style={{ width: 110 }}>Duration</th>
                     <th className="wia-th" style={{ width: 80 }}>Status</th>
@@ -278,6 +360,19 @@ export default function WhoIsActive({ connId }) {
                               size={10}
                               style={{ display: 'inline', transition: 'transform .15s', transform: isOpen ? 'none' : 'rotate(-90deg)' }}
                             />
+                          </td>
+                          {/* kill button */}
+                          <td className="wia-td text-center" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={e => { e.stopPropagation(); setKillTarget({ spid, login: row[C.login], host: row[C.host] }) }}
+                              style={{
+                                fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4,
+                                border: '1px solid rgba(220,38,38,.5)', background: 'rgba(220,38,38,.1)',
+                                color: '#dc2626', cursor: 'pointer', letterSpacing: '.02em',
+                              }}
+                            >
+                              Kill
+                            </button>
                           </td>
                           <td className="wia-td" style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--text-primary)' }}>
                             {spid ?? '—'}
@@ -334,7 +429,7 @@ export default function WhoIsActive({ connId }) {
                         {/* ── Expanded detail row ── */}
                         {isOpen && (
                           <tr className="wia-expand-row">
-                            <td colSpan={12} className="wia-expand-td">
+                            <td colSpan={13} className="wia-expand-td">
                               <div className="flex gap-5 flex-wrap">
                                 {/* SQL text */}
                                 {sqlText && (

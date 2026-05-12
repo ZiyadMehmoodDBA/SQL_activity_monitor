@@ -151,7 +151,7 @@ function Divider() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ConnectModal({ open, onClose, onConnected, prefill, prefillError }) {
+export default function ConnectModal({ open, onClose, onConnected, prefillError }) {
   const [modalTab,      setModalTab]      = useState('login')
   const [authType,      setAuthType]      = useState('windows')
   const [appIntent,     setAppIntent]     = useState('ReadWrite')
@@ -170,25 +170,21 @@ export default function ConnectModal({ open, onClose, onConnected, prefill, pref
 
   useEffect(() => {
     if (!open) return
-    if (prefill) {
-      setServer(prefill.server || '')
-      setLabel(prefill.label || '')
-      setDatabase(prefill.database || '')
-      setAuthType(prefill.authType || 'windows')
-      setUser(prefill.user || '')
-      if (prefill.color) setSelectedColor(prefill.color)
-      if (prefill.appIntent) setAppIntent(prefill.appIntent)
-      if (prefill.encrypt) setEncrypt(prefill.encrypt)
-      if (prefill.trustServerCert !== undefined) setTrustCert(prefill.trustServerCert)
-      setHostname(prefill.hostNameInCertificate || '')
-      if (prefillError) setError(prefillError)
-      return
-    }
-    fetch('/api/config').then(r => r.json()).then(cfg => {
-      if (cfg.defaultServer)   setServer(cfg.defaultServer)
-      if (cfg.defaultAuthType) setAuthType(cfg.defaultAuthType)
-      if (cfg.defaultDb && cfg.defaultDb !== 'master') setDatabase(cfg.defaultDb)
-    }).catch(() => {})
+    // Always reset to clean state — never carry over cached credentials
+    setServer('')
+    setLabel('')
+    setDatabase('')
+    setAuthType('windows')
+    setUser('')
+    setPassword('')
+    setHostname('')
+    setConnStr('')
+    setEncrypt('false')
+    setTrustCert(true)
+    setAppIntent('ReadWrite')
+    setSelectedColor(TAB_COLORS[0])
+    setModalTab('login')
+    setError(prefillError || '')
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submitConnect(body) {
