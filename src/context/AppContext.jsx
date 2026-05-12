@@ -52,12 +52,31 @@ function makeConn(conn) {
   }
 }
 
-const initialState = {
-  connections: {},
-  activeConnId: null,
-  palette: localStorage.getItem('palette') || 'Enterprise',
-  widgetLayout: loadLayout(),
+// Synchronously hydrate saved connection so first render shows Dashboard,
+// not the landing page. Uses same ID the server will receive via _clientId.
+function makeInitialState() {
+  const base = {
+    palette: localStorage.getItem('palette') || 'Enterprise',
+    widgetLayout: loadLayout(),
+  }
+  try {
+    const saved  = JSON.parse(localStorage.getItem('sqlmon-saved-conn'))
+    const connId = localStorage.getItem('sqlmon-conn-id')
+    if (saved && connId) {
+      const conn = makeConn({
+        id:        connId,
+        label:     saved.label || saved.server || 'Restoring…',
+        server:    saved.server || '',
+        color:     saved.color  || '#3b82f6',
+        appIntent: saved.appIntent || 'ReadWrite',
+      })
+      return { ...base, connections: { [connId]: conn }, activeConnId: connId }
+    }
+  } catch {}
+  return { ...base, connections: {}, activeConnId: null }
 }
+
+const initialState = makeInitialState()
 
 function reducer(state, action) {
   switch (action.type) {
@@ -76,6 +95,11 @@ function reducer(state, action) {
         ? (remaining[0] || null)
         : state.activeConnId
       return { ...state, connections: rest, activeConnId: nextActive }
+    }
+    // Hydration failed — evict the placeholder and show landing page
+    case 'HYDRATE_FAILED': {
+      const { [action.connId]: _, ...rest } = state.connections
+      return { ...state, connections: rest, activeConnId: Object.keys(rest)[0] || null }
     }
     case 'SET_ACTIVE':
       return { ...state, activeConnId: action.connId }

@@ -107,8 +107,8 @@ function buildConfig({ server: serverStr, database, authType, user, password, en
   const base = {
     server,
     database: database || 'master',
-    requestTimeout: 15000,
-    connectionTimeout: 15000,
+    requestTimeout:    10000,   // 10s — dashboard never waits on data
+    connectionTimeout:  5000,   // 5s  — fail fast on unreachable host
     options: {
       instanceName,
       encrypt:               encryptVal,
@@ -116,6 +116,7 @@ function buildConfig({ server: serverStr, database, authType, user, password, en
       hostNameInCertificate: hostNameInCertificate || undefined,
       enableArithAbort:      true,
       readOnlyIntent:        appIntent === 'ReadOnly',   // ApplicationIntent
+      appName:               'SQL Dashboard',            // visible in dm_exec_sessions.program_name
     },
     pool: { max: 5, min: 1, idleTimeoutMillis: 30000 },
   };
@@ -146,7 +147,8 @@ const Q = {
       (SELECT COUNT(*) FROM sys.dm_exec_requests
        WHERE status='suspended' OR (wait_type IS NOT NULL AND wait_type!='')) AS waiting_tasks,
       (SELECT cntr_value FROM sys.dm_os_performance_counters
-       WHERE counter_name='Batch Requests/sec' AND instance_name='')          AS batch_requests`,
+       WHERE counter_name='Batch Requests/sec' AND instance_name='')          AS batch_requests
+    OPTION (FAST 1)`,
 
   ioSnapshot: `
     SELECT CAST(SUM(num_of_bytes_read+num_of_bytes_written) AS FLOAT) AS total_bytes
@@ -172,8 +174,9 @@ const Q = {
     FROM sys.dm_exec_sessions s
     LEFT JOIN sys.dm_exec_requests r ON s.session_id=r.session_id
     OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t
-    WHERE s.is_user_process=1
-    ORDER BY s.cpu_time DESC`,
+    WHERE s.is_user_process=1 AND s.session_id > 50
+    ORDER BY s.cpu_time DESC
+    OPTION (FAST 100)`,
 
   resourceWaits: `
     SELECT TOP 25 wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
@@ -189,8 +192,47 @@ const Q = {
       AND waiting_tasks_count>0
     ORDER BY wait_time_ms DESC`,
 
+  // Real-time snapshot: what are the currently waiting sessions blocked on RIGHT NOW?
+  // Groups active waits by type so a spike of 36 waiting tasks shows root cause instantly.
+  currentWaits: `
+    SELECT TOP 20
+      r.wait_type,
+      COUNT(*)                                              AS session_count,
+      AVG(r.wait_time)                                      AS avg_wait_ms,
+      MAX(r.wait_time)                                      AS max_wait_ms,
+      SUM(r.wait_time)                                      AS total_wait_ms,
+      -- Classify severity so the UI can colour-code without knowing every wait type
+      CASE
+        WHEN r.wait_type LIKE 'LCK_%'                       THEN 'locking'
+        WHEN r.wait_type LIKE 'PAGEIO%' OR r.wait_type LIKE 'IO_%'
+          OR r.wait_type IN ('ASYNC_IO_COMPLETION','BACKUPIO','DISKIO')
+                                                            THEN 'io'
+        WHEN r.wait_type IN ('RESOURCE_SEMAPHORE','RESOURCE_SEMAPHORE_QUERY_COMPILE',
+          'CMEMTHREAD','MEMORY_ALLOCATION_EXT')             THEN 'memory'
+        WHEN r.wait_type LIKE 'PAGELATCH_%'                 THEN 'latch'
+        WHEN r.wait_type LIKE 'LATCH_%'                     THEN 'latch'
+        WHEN r.wait_type IN ('CXPACKET','CXCONSUMER','EXECSYNC')
+                                                            THEN 'parallelism'
+        WHEN r.wait_type LIKE 'NETWORK%' OR r.wait_type IN ('ASYNC_NETWORK_IO')
+                                                            THEN 'network'
+        WHEN r.wait_type LIKE 'LOG%' OR r.wait_type IN ('WRITELOG','LOGBUFFER')
+                                                            THEN 'log_io'
+        WHEN r.wait_type IN ('THREADPOOL')                  THEN 'cpu_pressure'
+        ELSE                                                     'other'
+      END                                                   AS category,
+      -- Blocker info: non-zero when a specific session is holding a lock
+      MAX(r.blocking_session_id)                            AS sample_blocker_id,
+      ISNULL(MAX(DB_NAME(r.database_id)),'')                AS sample_database
+    FROM sys.dm_exec_requests r
+    WHERE r.session_id > 50
+      AND r.wait_type IS NOT NULL AND r.wait_type <> ''
+      AND r.wait_type NOT IN ('SLEEP_TASK','WAITFOR','BROKER_TO_FLUSH','SQLTRACE_BUFFER_FLUSH')
+    GROUP BY r.wait_type
+    ORDER BY session_count DESC, total_wait_ms DESC
+    OPTION (FAST 20)`,
+
   dataFileIO: `
-    SELECT
+    SELECT TOP 50
       ISNULL(DB_NAME(vfs.database_id),'Unknown')                                                    AS database_name,
       ISNULL(RIGHT(mf.physical_name,CHARINDEX(N'\\',REVERSE(mf.physical_name))-1),'')              AS file_name,
       mf.type_desc AS file_type,
@@ -220,7 +262,7 @@ const Q = {
     ORDER BY qs.total_elapsed_time/qs.execution_count DESC`,
 
   activeExpensive: `
-    SELECT
+    SELECT TOP 50
       r.session_id, r.status, r.command, r.cpu_time,
       r.total_elapsed_time/1000 AS elapsed_sec,
       r.reads, r.writes, r.logical_reads,
@@ -234,11 +276,12 @@ const Q = {
           ELSE r.statement_end_offset END - r.statement_start_offset)/2)+1),''),300) AS query_text
     FROM sys.dm_exec_requests r
     CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) st
-    WHERE r.session_id != @@SPID
-    ORDER BY r.total_elapsed_time DESC`,
+    WHERE r.session_id != @@SPID AND r.session_id > 50
+    ORDER BY r.total_elapsed_time DESC
+    OPTION (FAST 50)`,
 
   blocking: `
-    SELECT
+    SELECT TOP 50
       bc.session_id                                                        AS blocked_session_id,
       bc.blocking_session_id,
       ISNULL(bs.login_name,'')                                             AS blocker_login,
@@ -263,8 +306,9 @@ const Q = {
     LEFT JOIN sys.dm_exec_requests br  ON bc.blocking_session_id = br.session_id
     OUTER APPLY sys.dm_exec_sql_text(bc.sql_handle) t
     OUTER APPLY sys.dm_exec_sql_text(br.sql_handle) bt
-    WHERE bc.blocking_session_id > 0
-    ORDER BY bc.wait_time DESC`,
+    WHERE bc.blocking_session_id > 0 AND bc.session_id > 50
+    ORDER BY bc.wait_time DESC
+    OPTION (FAST 50)`,
 
   deadlocks: `
     SELECT TOP 25
@@ -290,57 +334,33 @@ const Q = {
 
   serverPerf: `
     SELECT
-      -- SQL Server process memory (from dm_os_process_memory – no sys_info needed)
-      CAST(pm.physical_memory_in_use_kb AS FLOAT) / 1048576.0   AS sql_mem_gb,
-      -- Committed vs target from perf counters (reliable cross-version)
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT) / 1048576.0
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'Total Server Memory (KB)'
-         AND object_name  LIKE '%Memory Manager%')               AS sql_total_mem_gb,
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT) / 1048576.0
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'Target Server Memory (KB)'
-         AND object_name  LIKE '%Memory Manager%')               AS sql_target_mem_gb,
-      -- Page Life Expectancy
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT)
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'Page life expectancy'
-         AND object_name  LIKE '%Buffer Manager%')               AS ple_sec,
-      -- Connections / compilations
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT)
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'User Connections'
-         AND object_name  LIKE '%General Statistics%')           AS user_connections,
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT)
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'SQL Compilations/sec'
-         AND object_name  LIKE '%SQL Statistics%')               AS compilations_sec,
-      (SELECT TOP 1 CAST(cntr_value AS FLOAT)
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'SQL Re-Compilations/sec'
-         AND object_name  LIKE '%SQL Statistics%')               AS recompilations_sec,
-      -- Buffer Cache Hit Ratio (0-100)
-      ISNULL((SELECT TOP 1
-         CAST(c.cntr_value AS FLOAT) /
-         NULLIF((SELECT TOP 1 CAST(cntr_value AS FLOAT)
-                 FROM sys.dm_os_performance_counters
-                 WHERE counter_name = 'Buffer cache hit ratio base'
-                   AND object_name  LIKE '%Buffer Manager%'), 0) * 100.0
-       FROM sys.dm_os_performance_counters c
-       WHERE c.counter_name = 'Buffer cache hit ratio'
-         AND c.object_name  LIKE '%Buffer Manager%'), 0)         AS buffer_cache_hit_ratio,
-      -- Memory Grants Pending
-      ISNULL((SELECT TOP 1 CAST(cntr_value AS FLOAT)
-       FROM sys.dm_os_performance_counters
-       WHERE counter_name = 'Memory Grants Pending'
-         AND object_name  LIKE '%Memory Manager%'), 0)           AS memory_grants_pending,
-      -- Network: cumulative TDS packet bytes (delta between polls = throughput)
+      CAST(pm.physical_memory_in_use_kb AS FLOAT) / 1048576.0 AS sql_mem_gb,
+      -- Single scan of sys.dm_os_performance_counters via MAX(CASE WHEN) pivot
+      MAX(CASE WHEN c.counter_name='Total Server Memory (KB)'    AND c.object_name LIKE '%Memory Manager%'   THEN CAST(c.cntr_value AS FLOAT)/1048576.0 END) AS sql_total_mem_gb,
+      MAX(CASE WHEN c.counter_name='Target Server Memory (KB)'   AND c.object_name LIKE '%Memory Manager%'   THEN CAST(c.cntr_value AS FLOAT)/1048576.0 END) AS sql_target_mem_gb,
+      MAX(CASE WHEN c.counter_name='Page life expectancy'        AND c.object_name LIKE '%Buffer Manager%'   THEN CAST(c.cntr_value AS FLOAT) END)           AS ple_sec,
+      MAX(CASE WHEN c.counter_name='User Connections'            AND c.object_name LIKE '%General Statistics%' THEN CAST(c.cntr_value AS FLOAT) END)          AS user_connections,
+      MAX(CASE WHEN c.counter_name='SQL Compilations/sec'        AND c.object_name LIKE '%SQL Statistics%'   THEN CAST(c.cntr_value AS FLOAT) END)            AS compilations_sec,
+      MAX(CASE WHEN c.counter_name='SQL Re-Compilations/sec'     AND c.object_name LIKE '%SQL Statistics%'   THEN CAST(c.cntr_value AS FLOAT) END)            AS recompilations_sec,
+      ISNULL(
+        MAX(CASE WHEN c.counter_name='Buffer cache hit ratio'      AND c.object_name LIKE '%Buffer Manager%' THEN CAST(c.cntr_value AS FLOAT) END) /
+        NULLIF(MAX(CASE WHEN c.counter_name='Buffer cache hit ratio base' AND c.object_name LIKE '%Buffer Manager%' THEN CAST(c.cntr_value AS FLOAT) END), 0)
+        * 100.0, 0)                                                                                                                                            AS buffer_cache_hit_ratio,
+      ISNULL(MAX(CASE WHEN c.counter_name='Memory Grants Pending' AND c.object_name LIKE '%Memory Manager%' THEN CAST(c.cntr_value AS FLOAT) END), 0)         AS memory_grants_pending,
       ISNULL((SELECT CAST(SUM(
-         (CAST(num_reads  AS BIGINT) +
-          CAST(num_writes AS BIGINT)) *
+         (CAST(num_reads AS BIGINT) + CAST(num_writes AS BIGINT)) *
           CAST(ISNULL(NULLIF(net_packet_size,0), 4096) AS BIGINT)
-       ) AS FLOAT) FROM sys.dm_exec_connections), 0)             AS net_bytes_total
-    FROM sys.dm_os_process_memory pm`,
+       ) AS FLOAT) FROM sys.dm_exec_connections), 0)                                                                                                           AS net_bytes_total
+    FROM sys.dm_os_process_memory pm
+    CROSS JOIN sys.dm_os_performance_counters c
+    WHERE c.counter_name IN (
+      'Total Server Memory (KB)', 'Target Server Memory (KB)',
+      'Page life expectancy', 'User Connections',
+      'SQL Compilations/sec', 'SQL Re-Compilations/sec',
+      'Buffer cache hit ratio', 'Buffer cache hit ratio base',
+      'Memory Grants Pending'
+    )
+    GROUP BY pm.physical_memory_in_use_kb`,
 
   jobs: `
     SELECT TOP 100
@@ -378,6 +398,7 @@ const Q = {
              ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY run_date DESC, run_time DESC) AS rn
       FROM msdb.dbo.sysjobhistory
       WHERE step_id = 0
+        AND run_date >= CONVERT(INT, CONVERT(VARCHAR(8), DATEADD(DAY,-30,GETDATE()), 112))
     ) last_run ON j.job_id = last_run.job_id AND last_run.rn = 1
     ORDER BY
       CASE
@@ -387,7 +408,7 @@ const Q = {
       END, j.name`,
 
   dbSizes: `
-    SELECT
+    SELECT TOP 50
       DB_NAME(mf.database_id)                                      AS database_name,
       CAST(SUM(CAST(mf.size AS BIGINT)) * 8.0 * 1024 AS FLOAT)    AS allocated_bytes,
       CAST(MIN(vs.total_bytes)      AS FLOAT)                      AS volume_total_bytes,
@@ -430,12 +451,13 @@ const Q = {
 
 async function collectMetrics(pool, prevIO, prevNet) {
   const req = () => pool.request();
-  const [cpuR, ovR, ioR, procR, waitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR] = await Promise.all([
+  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR] = await Promise.all([
     req().query(Q.cpu),
     req().query(Q.overview),
     req().query(Q.ioSnapshot),
     req().query(Q.processes),
     req().query(Q.resourceWaits),
+    req().query(Q.currentWaits).catch(() => ({ recordset: [] })),
     req().query(Q.dataFileIO),
     req().query(Q.recentExpensive),
     req().query(Q.activeExpensive),
@@ -537,6 +559,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     batch_requests:  ov.batch_requests || 0,
     processes:       procR.recordset,
     resourceWaits:   waitR.recordset,
+    currentWaits:    curWaitR.recordset,
     dataFileIO:      fileR.recordset,
     recentExpensive: recentR.recordset,
     activeExpensive: activeR.recordset,
@@ -580,14 +603,33 @@ app.get('/api/connections', (_req, res) => {
   res.json(list);
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 app.post('/api/connect', async (req, res) => {
   try {
-    const { server, label, database, color, appIntent } = req.body;
+    const { server, label, database, color, appIntent, _clientId } = req.body;
     if (!server) return res.status(400).json({ error: 'Server is required.' });
 
     const config = buildConfig(req.body);
     const pool   = await new sql.ConnectionPool(config).connect();
-    const id     = randomUUID();
+    // Set session-level guardrails: dashboard is lowest-priority loser in deadlock graph,
+    // never waits >2s on a lock, and aborts immediately on error.
+    await pool.request().batch(
+      'SET DEADLOCK_PRIORITY LOW; SET LOCK_TIMEOUT 2000; SET XACT_ABORT ON;'
+    ).catch(e => console.warn('[session-init]', e.message));
+
+    // Honour client-supplied stable ID so the browser can reconnect without
+    // Dashboard remounting (key stays the same). Validate UUID format to be safe.
+    // If an old connection with this ID is still alive, evict it first.
+    let id = (typeof _clientId === 'string' && UUID_RE.test(_clientId)) ? _clientId : randomUUID();
+    if (connections.has(id)) {
+      const old = connections.get(id);
+      clearInterval(old.handle);
+      clearInterval(old.snapshotHandle);
+      try { await old.pool.close(); } catch {}
+      connections.delete(id);
+    }
+
     const displayLabel = label?.trim() || server;
 
     const conn = {
@@ -645,12 +687,15 @@ app.delete('/api/disconnect/:id', async (req, res) => {
 });
 
 app.post('/api/connections/:id/kill-sleeping', async (req, res) => {
+  if (process.env.ALLOW_KILL !== 'true') {
+    return res.status(403).json({ error: 'Kill disabled. Set ALLOW_KILL=true in .env to enable.' });
+  }
   const conn = connections.get(req.params.id);
   if (!conn) return res.status(404).json({ error: 'Not found.' });
   try {
     const result = await conn.pool.request().query(`
       SELECT session_id FROM sys.dm_exec_sessions
-      WHERE is_user_process=1 AND status='sleeping'`);
+      WHERE is_user_process=1 AND status='sleeping' AND session_id > 50`);
     const ids = result.recordset.map(r => r.session_id);
     if (ids.length === 0) return res.json({ killed: 0 });
     await Promise.allSettled(ids.map(sid =>
@@ -664,6 +709,9 @@ app.post('/api/connections/:id/kill-sleeping', async (req, res) => {
 });
 
 app.post('/api/connections/:id/kill', async (req, res) => {
+  if (process.env.ALLOW_KILL !== 'true') {
+    return res.status(403).json({ error: 'Kill disabled. Set ALLOW_KILL=true in .env to enable.' });
+  }
   const conn = connections.get(req.params.id);
   if (!conn) return res.status(404).json({ error: 'Not found.' });
   const sessionId = parseInt(req.body.sessionId, 10);
@@ -755,6 +803,178 @@ app.get('/api/connections/:id/db-size-history', (req, res) => {
   const history = loadDbHistory();
   const serverData = history[conn.server] || {};
   res.json(serverData);
+});
+
+// ─── Query Profiler ───────────────────────────────────────────────────────────
+
+/** Parse plan XML string for bad patterns — no extra deps, pure regex */
+function analyzePlan(planXml) {
+  if (!planXml) return [];
+  const x = String(planXml);
+  const issues = [];
+  if (/<KeyLookup|RIDLookup/.test(x))
+    issues.push({ type: 'key_lookup', severity: 'warning', message: 'Key/RID lookup — add INCLUDE columns to nonclustered index' });
+  if (/CONVERT_IMPLICIT/.test(x))
+    issues.push({ type: 'implicit_conversion', severity: 'warning', message: 'Implicit type conversion forces index scan — match param datatype to column' });
+  if (/<MissingIndex/.test(x))
+    issues.push({ type: 'missing_index_hint', severity: 'info', message: 'Optimizer recommends a missing index for this query' });
+  if (/SpillToTempDb/.test(x))
+    issues.push({ type: 'spill', severity: 'critical', message: 'Spill to TempDB — sort or hash join exceeded memory grant' });
+  if (/<TableScan/.test(x))
+    issues.push({ type: 'table_scan', severity: 'warning', message: 'Full table scan — add or improve index on filter/join columns' });
+  if (/ClusteredIndexScan/.test(x))
+    issues.push({ type: 'clustered_scan', severity: 'info', message: 'Clustered index scan — may be OK for small tables, costly on large ones' });
+  if (/ColumnarIndexScan/.test(x))
+    issues.push({ type: 'columnstore_scan', severity: 'info', message: 'Columnstore index scan' });
+  return issues;
+}
+
+// Fragmentation cache per connection (TTL 5 min — expensive query)
+const fragCache = new Map(); // connId → { ts, data }
+const FRAG_TTL = 5 * 60 * 1000;
+
+app.get('/api/connections/:id/profiler/top-queries', async (req, res) => {
+  const conn = connections.get(req.params.id);
+  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  try {
+    // No CROSS APPLY query_plan — plan XML deserialization for 25 rows kills the 10s timeout.
+    // Plan analysis is on-demand via /profiler/plan/:hex when user expands a row.
+    const r = await conn.pool.request().query(`
+      SELECT TOP 25
+        CONVERT(VARCHAR(130), qs.plan_handle, 1)       AS plan_handle_hex,
+        qs.execution_count,
+        qs.total_worker_time    / 1000                 AS total_cpu_ms,
+        qs.total_elapsed_time   / 1000                 AS total_elapsed_ms,
+        qs.total_logical_reads,
+        qs.total_logical_writes,
+        qs.total_worker_time  / qs.execution_count / 1000 AS avg_cpu_ms,
+        qs.total_elapsed_time / qs.execution_count / 1000 AS avg_elapsed_ms,
+        qs.total_logical_reads / qs.execution_count        AS avg_logical_reads,
+        SUBSTRING(st.text,
+          (qs.statement_start_offset/2)+1,
+          ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+            ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1
+        )                                              AS query_text,
+        DB_NAME(st.dbid)                               AS database_name
+      FROM sys.dm_exec_query_stats qs
+      CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+      WHERE qs.execution_count > 0
+        AND qs.total_worker_time > 0
+      ORDER BY qs.total_worker_time DESC
+      OPTION (FAST 10)
+    `);
+    res.json({ rows: r.recordset || [], ts: Date.now() });
+  } catch (err) {
+    console.error('[profiler/top-queries]', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// On-demand plan analysis — POST body {planHandleHex} avoids IIS URL-length limits
+// and sql.VarBinary type issues; pass hex as NVarChar, convert in SQL.
+app.post('/api/connections/:id/profiler/plan', async (req, res) => {
+  const conn = connections.get(req.params.id);
+  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const hex = req.body?.planHandleHex;
+  if (!hex || typeof hex !== 'string' || !/^0x[0-9A-Fa-f]+$/.test(hex)) {
+    return res.status(400).json({ error: 'Invalid plan handle.' });
+  }
+  try {
+    const r = await conn.pool.request()
+      .input('ph', sql.NVarChar(130), hex)
+      .query(`
+        SELECT CONVERT(NVARCHAR(MAX), qp.query_plan) AS plan_xml
+        FROM sys.dm_exec_query_plan(CONVERT(varbinary(64), @ph, 1)) qp
+      `);
+    const planXml = r.recordset?.[0]?.plan_xml || null;
+    res.json({ issues: analyzePlan(planXml), ts: Date.now() });
+  } catch (err) {
+    console.error('[profiler/plan]', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/connections/:id/profiler/missing-indexes', async (req, res) => {
+  const conn = connections.get(req.params.id);
+  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  try {
+    const r = await conn.pool.request().query(`
+      SELECT TOP 30
+        DB_NAME(mid.database_id)                                    AS database_name,
+        OBJECT_SCHEMA_NAME(mid.object_id, mid.database_id)         AS schema_name,
+        OBJECT_NAME(mid.object_id, mid.database_id)                AS table_name,
+        mid.equality_columns,
+        mid.inequality_columns,
+        mid.included_columns,
+        migs.user_seeks,
+        migs.user_scans,
+        ROUND(migs.avg_total_user_cost, 2)                         AS avg_cost_without_index,
+        ROUND(migs.avg_user_impact, 1)                             AS impact_pct,
+        ROUND(migs.avg_total_user_cost * migs.avg_user_impact
+              * (migs.user_seeks + migs.user_scans), 0)            AS impact_score
+      FROM sys.dm_db_missing_index_details  mid
+      JOIN sys.dm_db_missing_index_groups   mig  ON mid.index_handle       = mig.index_handle
+      JOIN sys.dm_db_missing_index_group_stats migs ON mig.index_group_handle = migs.group_handle
+      WHERE migs.avg_user_impact >= 10
+      ORDER BY impact_score DESC
+      OPTION (FAST 10)
+    `);
+    res.json({ rows: r.recordset || [], ts: Date.now() });
+  } catch (err) {
+    console.error('[profiler/missing-indexes]', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/connections/:id/profiler/index-fragmentation', async (req, res) => {
+  const conn = connections.get(req.params.id);
+  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const cached = fragCache.get(req.params.id);
+  if (cached && Date.now() - cached.ts < FRAG_TTL) {
+    return res.json({ rows: cached.data, ts: cached.ts, cached: true });
+  }
+  try {
+    // NULL/NULL global scan times out on large DBs. Instead:
+    // 1) pull top 25 tables by row count from sys.partitions (catalog only, instant)
+    // 2) CROSS APPLY dm_db_index_physical_stats per specific object_id (25 targeted calls)
+    // Result: stays well under 10s even on databases with thousands of indexes.
+    const r = await conn.pool.request().query(`
+      SELECT TOP 40
+        OBJECT_NAME(ips.object_id)                 AS table_name,
+        i.name                                     AS index_name,
+        ips.index_type_desc,
+        ROUND(ips.avg_fragmentation_in_percent, 1) AS fragmentation_pct,
+        ips.page_count,
+        CASE
+          WHEN ips.avg_fragmentation_in_percent >= 40 THEN 'REBUILD'
+          WHEN ips.avg_fragmentation_in_percent >= 10 THEN 'REORGANIZE'
+          ELSE 'OK'
+        END                                        AS recommended_action
+      FROM (
+        SELECT TOP 25 object_id
+        FROM   sys.partitions
+        WHERE  rows > 5000 AND index_id > 0
+        GROUP  BY object_id
+        ORDER  BY MAX(rows) DESC
+      ) big_tables
+      CROSS APPLY sys.dm_db_index_physical_stats(
+                    DB_ID(), big_tables.object_id, NULL, NULL, 'LIMITED') ips
+      JOIN sys.indexes i
+        ON  i.object_id = ips.object_id
+        AND i.index_id  = ips.index_id
+      WHERE ips.index_id > 0
+        AND ips.page_count > 200
+        AND ips.avg_fragmentation_in_percent >= 10
+        AND i.name IS NOT NULL
+      ORDER BY ips.avg_fragmentation_in_percent DESC
+      OPTION (FAST 10)
+    `);
+    fragCache.set(req.params.id, { ts: Date.now(), data: r.recordset || [] });
+    res.json({ rows: r.recordset || [], ts: Date.now(), cached: false });
+  } catch (err) {
+    console.error('[profiler/index-fragmentation]', err.message);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
