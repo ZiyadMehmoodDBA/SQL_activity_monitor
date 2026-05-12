@@ -151,7 +151,7 @@ function Divider() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ConnectModal({ open, onClose, onConnected }) {
+export default function ConnectModal({ open, onClose, onConnected, prefill, prefillError }) {
   const [modalTab,      setModalTab]      = useState('login')
   const [authType,      setAuthType]      = useState('windows')
   const [appIntent,     setAppIntent]     = useState('ReadWrite')
@@ -170,12 +170,26 @@ export default function ConnectModal({ open, onClose, onConnected }) {
 
   useEffect(() => {
     if (!open) return
+    if (prefill) {
+      setServer(prefill.server || '')
+      setLabel(prefill.label || '')
+      setDatabase(prefill.database || '')
+      setAuthType(prefill.authType || 'windows')
+      setUser(prefill.user || '')
+      if (prefill.color) setSelectedColor(prefill.color)
+      if (prefill.appIntent) setAppIntent(prefill.appIntent)
+      if (prefill.encrypt) setEncrypt(prefill.encrypt)
+      if (prefill.trustServerCert !== undefined) setTrustCert(prefill.trustServerCert)
+      setHostname(prefill.hostNameInCertificate || '')
+      if (prefillError) setError(prefillError)
+      return
+    }
     fetch('/api/config').then(r => r.json()).then(cfg => {
       if (cfg.defaultServer)   setServer(cfg.defaultServer)
       if (cfg.defaultAuthType) setAuthType(cfg.defaultAuthType)
       if (cfg.defaultDb && cfg.defaultDb !== 'master') setDatabase(cfg.defaultDb)
     }).catch(() => {})
-  }, [open])
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submitConnect(body) {
     setError('')
@@ -188,7 +202,7 @@ export default function ConnectModal({ open, onClose, onConnected }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Connection failed')
-      onConnected(data)
+      onConnected(data, body)
       onClose()
     } catch (err) {
       setError(err.message)

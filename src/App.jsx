@@ -12,6 +12,9 @@ export default function App() {
   const { state, dispatch } = useApp()
   const [showConnect, setShowConnect] = useState(false)
   const [showWidgets, setShowWidgets] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [prefill, setPrefill] = useState(null)
+  const [prefillError, setPrefillError] = useState('')
   const socketRef = useSocket(dispatch, state.connections)
 
   // Apply palette on mount and when it changes
@@ -19,29 +22,71 @@ export default function App() {
     applyPalette(state.palette)
   }, [state.palette])
 
-  // Fetch existing connections on mount
+  // On mount: attempt silent reconnect from localStorage, or show ConnectModal fresh.
   useEffect(() => {
-    fetch('/api/connections')
-      .then(r => r.json())
-      .then(existing => {
-        if (existing.length === 0) {
-          setShowConnect(true)
-        } else {
-          existing.forEach(conn => dispatch({ type: 'ADD_CONN', conn }))
-        }
+    const saved = (() => {
+      try { return JSON.parse(localStorage.getItem('sqlmon-saved-conn')) } catch { return null }
+    })()
+
+    const cleanupStale = () =>
+      fetch('/api/connections')
+        .then(r => r.json())
+        .then(existing => existing.forEach(c =>
+          fetch(`/api/disconnect/${c.id}`, { method: 'DELETE' }).catch(() => {})
+        ))
+        .catch(() => {})
+
+    if (!saved) {
+      cleanupStale().finally(() => setShowConnect(true))
+      return
+    }
+
+    setReconnecting(true)
+    setPrefill(saved)   // hold saved config so banner can show label
+    cleanupStale()
+
+    const body = { ...saved }
+    if (saved.authType === 'sql') {
+      body.password = sessionStorage.getItem('sqlmon-saved-pass') || ''
+    }
+
+    fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(async r => {
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'Reconnect failed')
+        return data
       })
-      .catch(() => {
+      .then(conn => {
+        dispatch({ type: 'ADD_CONN', conn })
+        setPrefill(null)
+      })
+      .catch(err => {
+        setPrefillError(`Auto-reconnect failed: ${err.message}`)
         setShowConnect(true)
       })
+      .finally(() => setReconnecting(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleConnected(conn) {
+  function handleConnected(conn, formBody) {
     dispatch({ type: 'ADD_CONN', conn })
-    // Subscribe immediately
     if (socketRef.current) {
       socketRef.current.emit('subscribe', conn.id)
     }
+    // Persist config (no password) for silent reconnect on next refresh
+    if (formBody) {
+      const { password: _pw, ...toSave } = formBody
+      try { localStorage.setItem('sqlmon-saved-conn', JSON.stringify(toSave)) } catch {}
+      if (formBody.authType === 'sql' && formBody.password) {
+        try { sessionStorage.setItem('sqlmon-saved-pass', formBody.password) } catch {}
+      }
+    }
     setShowConnect(false)
+    setPrefill(null)
+    setPrefillError('')
   }
 
   async function handleRemoveConnection(connId) {
@@ -55,6 +100,14 @@ export default function App() {
       socketRef.current.emit('unsubscribe', connId)
     }
     dispatch({ type: 'REMOVE_CONN', connId })
+    // Clear persisted session for this server
+    try {
+      const saved = JSON.parse(localStorage.getItem('sqlmon-saved-conn'))
+      if (saved?.server === conn.server) {
+        localStorage.removeItem('sqlmon-saved-conn')
+        sessionStorage.removeItem('sqlmon-saved-pass')
+      }
+    } catch {}
   }
 
   const connIds = Object.keys(state.connections)
@@ -63,6 +116,16 @@ export default function App() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--body-bg)', color: 'var(--body-text)' }}>
+      {reconnecting && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+          background: 'var(--header-bg)', color: '#fff',
+          textAlign: 'center', padding: '9px 16px',
+          fontSize: 13, fontWeight: 600, letterSpacing: '.01em',
+        }}>
+          Reconnecting to {prefill?.label || prefill?.server || 'server'}…
+        </div>
+      )}
       <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
       <WidgetSidebar open={showWidgets} onClose={() => setShowWidgets(false)} />
 
@@ -98,6 +161,8 @@ export default function App() {
         open={showConnect}
         onClose={() => setShowConnect(false)}
         onConnected={handleConnected}
+        prefill={prefill}
+        prefillError={prefillError}
       />
     </div>
   )
