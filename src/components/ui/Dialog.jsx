@@ -28,8 +28,9 @@ export function DialogContent({ children, className, ...props }) {
         style={{
           background: 'var(--card-bg)',
           border: '1px solid var(--input-border)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.06)',
-          ...props.style,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.08)',
+          borderRadius: 16,
+          ...props.style,   // caller can fully override bg/border
         }}
       >
         {children}
