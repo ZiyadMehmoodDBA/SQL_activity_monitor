@@ -2,18 +2,18 @@ import React, { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogClose } from './ui/Dialog'
 import { X } from 'lucide-react'
 
-// ── Dark design tokens (matches reference image) ──────────────────────────────
+// ── Palette-aware design tokens (follow active CSS vars) ──────────────────────
 const T = {
-  bg:          '#0f172a',   // modal surface
-  surface:     '#1e2937',   // input / seg track background
-  border:      '#374151',   // all borders
-  borderSub:   '#1f2937',   // subtle divider
-  text:        '#f9fafb',   // primary text / input values
-  textSub:     '#d1d5db',   // secondary labels
-  label:       '#9ca3af',   // field labels (uppercase)
-  placeholder: '#6b7280',
-  accent:      '#3b82f6',
-  accentHover: '#2563eb',
+  bg:          'var(--card-bg)',
+  surface:     'var(--input-bg)',
+  border:      'var(--input-border)',
+  borderSub:   'var(--divider)',
+  text:        'var(--text-primary)',
+  textSub:     'var(--text-secondary)',
+  label:       'var(--text-muted)',
+  placeholder: 'var(--text-muted)',
+  accent:      'var(--sort-active)',
+  accentHover: 'var(--sort-active)',
   accentRing:  'rgba(59,130,246,0.25)',
   danger:      '#fca5a5',
   dangerBg:    'rgba(239,68,68,0.15)',
