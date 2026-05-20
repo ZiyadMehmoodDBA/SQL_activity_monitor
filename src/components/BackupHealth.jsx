@@ -1,9 +1,9 @@
 import React from 'react'
 
-export const FULL_WARN_MS = 7  * 86_400_000   // 7 days
-export const FULL_CRIT_MS = 14 * 86_400_000   // 14 days
-export const LOG_WARN_MS  = 2  * 3_600_000    // 2 hours
-export const LOG_CRIT_MS  = 24 * 3_600_000    // 24 hours
+export const FULL_WARN_MS = 7  * 86_400_000
+export const FULL_CRIT_MS = 14 * 86_400_000
+export const LOG_WARN_MS  = 2  * 3_600_000
+export const LOG_CRIT_MS  = 24 * 3_600_000
 
 export function ageMs(dateStr) {
   if (!dateStr) return Infinity
@@ -11,31 +11,41 @@ export function ageMs(dateStr) {
 }
 
 function BackupBadge({ dateStr, warnMs, critMs, na }) {
-  if (na) return <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>N/A</span>
-  const age   = ageMs(dateStr)
-  const label = dateStr
+  if (na) return (
+    <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>N/A</span>
+  )
+  const age    = ageMs(dateStr)
+  const label  = dateStr
     ? new Date(dateStr).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : 'Never'
   const isCrit = !dateStr || age > critMs
   const isWarn = !isCrit && age > warnMs
   const color  = isCrit ? '#ef4444' : isWarn ? '#f59e0b' : '#22c55e'
-  const bg     = isCrit ? 'rgba(239,68,68,.12)' : isWarn ? 'rgba(245,158,11,.12)' : 'rgba(34,197,94,.10)'
+  const bg     = isCrit ? 'rgba(239,68,68,.1)' : isWarn ? 'rgba(245,158,11,.1)' : 'rgba(34,197,94,.08)'
+  const ring   = isCrit ? 'rgba(239,68,68,.25)' : isWarn ? 'rgba(245,158,11,.25)' : 'rgba(34,197,94,.2)'
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: bg, color, whiteSpace: 'nowrap' }}>
+    <span style={{
+      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+      background: bg, color, border: `1px solid ${ring}`, whiteSpace: 'nowrap',
+    }}>
       {label}
     </span>
   )
 }
 
 function RecoveryBadge({ model }) {
-  const styles = {
-    FULL:        { bg: 'rgba(59,130,246,.12)',  color: '#3b82f6' },
-    SIMPLE:      { bg: 'rgba(100,116,139,.12)', color: '#64748b' },
-    BULK_LOGGED: { bg: 'rgba(245,158,11,.12)',  color: '#f59e0b' },
+  const map = {
+    FULL:        { bg: 'rgba(59,130,246,.08)',  color: '#3b82f6', ring: 'rgba(59,130,246,.2)' },
+    SIMPLE:      { bg: 'rgba(100,116,139,.08)', color: '#64748b', ring: 'rgba(100,116,139,.2)' },
+    BULK_LOGGED: { bg: 'rgba(245,158,11,.08)',  color: '#f59e0b', ring: 'rgba(245,158,11,.2)' },
   }
-  const s = styles[model] || styles.SIMPLE
+  const s = map[model] || map.SIMPLE
   return (
-    <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: s.bg, color: s.color }}>
+    <span style={{
+      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+      background: s.bg, color: s.color, border: `1px solid ${s.ring}`,
+      letterSpacing: '.03em', textTransform: 'uppercase',
+    }}>
       {model}
     </span>
   )
@@ -44,14 +54,20 @@ function RecoveryBadge({ model }) {
 export default function BackupHealth({ rows }) {
   if (!rows || rows.length === 0) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-        No user databases found
+      <div className="flex flex-col items-center justify-center py-12 gap-2">
+        <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+          No user databases found
+        </span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)', opacity: .6 }}>
+          Databases with ID &gt; 4 and state = online appear here
+        </span>
       </div>
     )
   }
+
   return (
-    <div style={{ overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
-      <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+    <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+      <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr>
             <th className="wia-th">Database</th>
@@ -69,7 +85,7 @@ export default function BackupHealth({ rows }) {
             const rowAlert  = fullCrit || logCrit
             return (
               <tr key={r.database_name} className="wia-row"
-                style={rowAlert ? { borderLeft: '2px solid rgba(239,68,68,.4)' } : undefined}>
+                style={rowAlert ? { borderLeft: '2px solid rgba(239,68,68,.45)' } : undefined}>
                 <td className="wia-td" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                   {r.database_name}
                 </td>
@@ -81,10 +97,10 @@ export default function BackupHealth({ rows }) {
                 </td>
                 <td className="wia-td">
                   {r.last_diff
-                    ? <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    ? <span className="tabular-nums text-xs" style={{ color: 'var(--text-secondary)' }}>
                         {new Date(r.last_diff).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                    : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>—</span>}
+                    : <span style={{ color: 'var(--text-muted)', opacity: .5 }}>—</span>}
                 </td>
                 <td className="wia-td">
                   <BackupBadge
