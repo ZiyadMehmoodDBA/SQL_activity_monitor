@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const sql        = require('mssql');
 const { randomUUID } = require('crypto');
 const path       = require('path');
+const fs         = require('fs');
 
 const PORT    = parseInt(process.env.PORT)              || 3000;
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS)  || 2000;
@@ -14,7 +15,6 @@ const httpServer = createServer(app);
 const io         = new Server(httpServer);
 
 app.use(express.json());
-const fs = require('fs')
 const distDir = path.join(__dirname, 'dist')
 const publicDir = path.join(__dirname, 'public')
 app.use(express.static(fs.existsSync(distDir) ? distDir : publicDir));
@@ -88,6 +88,12 @@ async function takeDbSizeSnapshot(pool, serverKey) {
 const connections = new Map();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function requireConn(req, res) {
+  const conn = connections.get(req.params.id)
+  if (!conn) { res.status(404).json({ error: 'Not found.' }); return null }
+  return conn
+}
+
 function parseServer(str) {
   const idx = str.indexOf('\\');
   return idx < 0
@@ -447,11 +453,27 @@ const Q = {
     WHERE mf.state = 0
     GROUP BY v.volume_mount_point
     ORDER BY v.volume_mount_point`,
+
+  backupHealth: `
+    SELECT
+      d.name                                                        AS database_name,
+      d.recovery_model_desc,
+      MAX(CASE WHEN bs.type = 'D' THEN bs.backup_finish_date END)  AS last_full,
+      MAX(CASE WHEN bs.type = 'I' THEN bs.backup_finish_date END)  AS last_diff,
+      MAX(CASE WHEN bs.type = 'L' THEN bs.backup_finish_date END)  AS last_log
+    FROM sys.databases d
+    LEFT JOIN msdb.dbo.backupset bs
+      ON  bs.database_name = d.name
+      AND bs.backup_finish_date > DATEADD(DAY, -60, GETDATE())
+    WHERE d.database_id > 4
+      AND d.state = 0
+    GROUP BY d.name, d.recovery_model_desc
+    ORDER BY d.name`,
 };
 
 async function collectMetrics(pool, prevIO, prevNet) {
   const req = () => pool.request();
-  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR] = await Promise.all([
+  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR, backupHealthR] = await Promise.all([
     req().query(Q.cpu),
     req().query(Q.overview),
     req().query(Q.ioSnapshot),
@@ -467,6 +489,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     req().query(Q.serverPerf).catch(err => { console.error('[serverPerf]', err.message); return { recordset: [] }; }),
     req().query(Q.jobs).catch(err => { console.error('[jobs]', err.message); return { recordset: [] }; }),
     req().query(Q.diskDrives).catch(err => { console.error('[diskDrives]', err.message); return { recordset: [] }; }),
+    req().query(Q.backupHealth).catch(err => { console.error('[backupHealth]', err.message); return { recordset: [] }; }),
   ]);
 
   // ── Supplement diskDrives with OS drives that have no SQL files ───────────────
@@ -581,6 +604,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     },
     jobs:            jobsR.recordset,
     diskDrives:      diskDrives,
+    backupHealth:    backupHealthR.recordset,
     _prevIO:  { bytes: currBytes,    time: now },
     _prevNet: { bytes: currNetBytes, time: now },
   };
@@ -676,8 +700,8 @@ app.post('/api/connect', async (req, res) => {
 });
 
 app.delete('/api/disconnect/:id', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const conn = requireConn(req, res);
+  if (!conn) return;
   clearInterval(conn.handle);
   clearInterval(conn.snapshotHandle);
   try { await conn.pool.close(); } catch {}
@@ -690,8 +714,8 @@ app.post('/api/connections/:id/kill-sleeping', async (req, res) => {
   if (process.env.ALLOW_KILL !== 'true') {
     return res.status(403).json({ error: 'Kill disabled. Set ALLOW_KILL=true in .env to enable.' });
   }
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const conn = requireConn(req, res);
+  if (!conn) return;
   try {
     const result = await conn.pool.request().query(`
       SELECT session_id FROM sys.dm_exec_sessions
@@ -712,8 +736,8 @@ app.post('/api/connections/:id/kill', async (req, res) => {
   if (process.env.ALLOW_KILL !== 'true') {
     return res.status(403).json({ error: 'Kill disabled. Set ALLOW_KILL=true in .env to enable.' });
   }
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const conn = requireConn(req, res);
+  if (!conn) return;
   const sessionId = parseInt(req.body.sessionId, 10);
   if (!Number.isInteger(sessionId) || sessionId <= 0 || sessionId > 32767) {
     return res.status(400).json({ error: 'Invalid session ID.' });
@@ -728,8 +752,8 @@ app.post('/api/connections/:id/kill', async (req, res) => {
 });
 
 app.get('/api/connections/:id/whoIsActive', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const conn = requireConn(req, res);
+  if (!conn) return;
   try {
     const result = await conn.pool.request().query(`
       EXEC sp_WhoIsActive
@@ -763,34 +787,19 @@ app.get('/api/connections/:id/whoIsActive', async (req, res) => {
   }
 });
 
-app.post('/api/connections/:id/jobs/start', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+app.post('/api/connections/:id/jobs/:action', async (req, res) => {
+  const conn = requireConn(req, res);
+  if (!conn) return;
+  const { action } = req.params;
   const { jobName } = req.body;
   if (!jobName || typeof jobName !== 'string' || jobName.length > 256)
     return res.status(400).json({ error: 'Invalid job name.' });
   try {
+    const proc = action === 'start' ? 'sp_start_job' : 'sp_stop_job';
     await conn.pool.request()
       .input('jn', sql.NVarChar(256), jobName)
-      .query('EXEC msdb.dbo.sp_start_job @job_name = @jn');
-    console.log(`[${conn.label}] Started job: ${jobName}`);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post('/api/connections/:id/jobs/stop', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
-  const { jobName } = req.body;
-  if (!jobName || typeof jobName !== 'string' || jobName.length > 256)
-    return res.status(400).json({ error: 'Invalid job name.' });
-  try {
-    await conn.pool.request()
-      .input('jn', sql.NVarChar(256), jobName)
-      .query('EXEC msdb.dbo.sp_stop_job @job_name = @jn');
-    console.log(`[${conn.label}] Stopped job: ${jobName}`);
+      .query(`EXEC msdb.dbo.${proc} @job_name = @jn`);
+    console.log(`[${conn.label}] ${action === 'start' ? 'Started' : 'Stopped'} job: ${jobName}`);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -798,184 +807,13 @@ app.post('/api/connections/:id/jobs/stop', async (req, res) => {
 });
 
 app.get('/api/connections/:id/db-size-history', (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
+  const conn = requireConn(req, res);
+  if (!conn) return;
   const history = loadDbHistory();
   const serverData = history[conn.server] || {};
   res.json(serverData);
 });
 
-// ─── Query Profiler ───────────────────────────────────────────────────────────
-
-/** Parse plan XML string for bad patterns — no extra deps, pure regex */
-function analyzePlan(planXml) {
-  if (!planXml) return [];
-  const x = String(planXml);
-  const issues = [];
-  if (/<KeyLookup|RIDLookup/.test(x))
-    issues.push({ type: 'key_lookup', severity: 'warning', message: 'Key/RID lookup — add INCLUDE columns to nonclustered index' });
-  if (/CONVERT_IMPLICIT/.test(x))
-    issues.push({ type: 'implicit_conversion', severity: 'warning', message: 'Implicit type conversion forces index scan — match param datatype to column' });
-  if (/<MissingIndex/.test(x))
-    issues.push({ type: 'missing_index_hint', severity: 'info', message: 'Optimizer recommends a missing index for this query' });
-  if (/SpillToTempDb/.test(x))
-    issues.push({ type: 'spill', severity: 'critical', message: 'Spill to TempDB — sort or hash join exceeded memory grant' });
-  if (/<TableScan/.test(x))
-    issues.push({ type: 'table_scan', severity: 'warning', message: 'Full table scan — add or improve index on filter/join columns' });
-  if (/ClusteredIndexScan/.test(x))
-    issues.push({ type: 'clustered_scan', severity: 'info', message: 'Clustered index scan — may be OK for small tables, costly on large ones' });
-  if (/ColumnarIndexScan/.test(x))
-    issues.push({ type: 'columnstore_scan', severity: 'info', message: 'Columnstore index scan' });
-  return issues;
-}
-
-// Fragmentation cache per connection (TTL 5 min — expensive query)
-const fragCache = new Map(); // connId → { ts, data }
-const FRAG_TTL = 5 * 60 * 1000;
-
-app.get('/api/connections/:id/profiler/top-queries', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
-  try {
-    // No CROSS APPLY query_plan — plan XML deserialization for 25 rows kills the 10s timeout.
-    // Plan analysis is on-demand via /profiler/plan/:hex when user expands a row.
-    const r = await conn.pool.request().query(`
-      SELECT TOP 25
-        CONVERT(VARCHAR(130), qs.plan_handle, 1)       AS plan_handle_hex,
-        qs.execution_count,
-        qs.total_worker_time    / 1000                 AS total_cpu_ms,
-        qs.total_elapsed_time   / 1000                 AS total_elapsed_ms,
-        qs.total_logical_reads,
-        qs.total_logical_writes,
-        qs.total_worker_time  / qs.execution_count / 1000 AS avg_cpu_ms,
-        qs.total_elapsed_time / qs.execution_count / 1000 AS avg_elapsed_ms,
-        qs.total_logical_reads / qs.execution_count        AS avg_logical_reads,
-        SUBSTRING(st.text,
-          (qs.statement_start_offset/2)+1,
-          ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
-            ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1
-        )                                              AS query_text,
-        DB_NAME(st.dbid)                               AS database_name
-      FROM sys.dm_exec_query_stats qs
-      CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-      WHERE qs.execution_count > 0
-        AND qs.total_worker_time > 0
-      ORDER BY qs.total_worker_time DESC
-      OPTION (FAST 10)
-    `);
-    res.json({ rows: r.recordset || [], ts: Date.now() });
-  } catch (err) {
-    console.error('[profiler/top-queries]', err.message);
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// On-demand plan analysis — POST body {planHandleHex} avoids IIS URL-length limits
-// and sql.VarBinary type issues; pass hex as NVarChar, convert in SQL.
-app.post('/api/connections/:id/profiler/plan', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
-  const hex = req.body?.planHandleHex;
-  if (!hex || typeof hex !== 'string' || !/^0x[0-9A-Fa-f]+$/.test(hex)) {
-    return res.status(400).json({ error: 'Invalid plan handle.' });
-  }
-  try {
-    const r = await conn.pool.request()
-      .input('ph', sql.NVarChar(130), hex)
-      .query(`
-        SELECT CONVERT(NVARCHAR(MAX), qp.query_plan) AS plan_xml
-        FROM sys.dm_exec_query_plan(CONVERT(varbinary(64), @ph, 1)) qp
-      `);
-    const planXml = r.recordset?.[0]?.plan_xml || null;
-    res.json({ issues: analyzePlan(planXml), ts: Date.now() });
-  } catch (err) {
-    console.error('[profiler/plan]', err.message);
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/connections/:id/profiler/missing-indexes', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
-  try {
-    const r = await conn.pool.request().query(`
-      SELECT TOP 30
-        DB_NAME(mid.database_id)                                    AS database_name,
-        OBJECT_SCHEMA_NAME(mid.object_id, mid.database_id)         AS schema_name,
-        OBJECT_NAME(mid.object_id, mid.database_id)                AS table_name,
-        mid.equality_columns,
-        mid.inequality_columns,
-        mid.included_columns,
-        migs.user_seeks,
-        migs.user_scans,
-        ROUND(migs.avg_total_user_cost, 2)                         AS avg_cost_without_index,
-        ROUND(migs.avg_user_impact, 1)                             AS impact_pct,
-        ROUND(migs.avg_total_user_cost * migs.avg_user_impact
-              * (migs.user_seeks + migs.user_scans), 0)            AS impact_score
-      FROM sys.dm_db_missing_index_details  mid
-      JOIN sys.dm_db_missing_index_groups   mig  ON mid.index_handle       = mig.index_handle
-      JOIN sys.dm_db_missing_index_group_stats migs ON mig.index_group_handle = migs.group_handle
-      WHERE migs.avg_user_impact >= 10
-      ORDER BY impact_score DESC
-      OPTION (FAST 10)
-    `);
-    res.json({ rows: r.recordset || [], ts: Date.now() });
-  } catch (err) {
-    console.error('[profiler/missing-indexes]', err.message);
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/connections/:id/profiler/index-fragmentation', async (req, res) => {
-  const conn = connections.get(req.params.id);
-  if (!conn) return res.status(404).json({ error: 'Not found.' });
-  const cached = fragCache.get(req.params.id);
-  if (cached && Date.now() - cached.ts < FRAG_TTL) {
-    return res.json({ rows: cached.data, ts: cached.ts, cached: true });
-  }
-  try {
-    // NULL/NULL global scan times out on large DBs. Instead:
-    // 1) pull top 25 tables by row count from sys.partitions (catalog only, instant)
-    // 2) CROSS APPLY dm_db_index_physical_stats per specific object_id (25 targeted calls)
-    // Result: stays well under 10s even on databases with thousands of indexes.
-    const r = await conn.pool.request().query(`
-      SELECT TOP 40
-        OBJECT_NAME(ips.object_id)                 AS table_name,
-        i.name                                     AS index_name,
-        ips.index_type_desc,
-        ROUND(ips.avg_fragmentation_in_percent, 1) AS fragmentation_pct,
-        ips.page_count,
-        CASE
-          WHEN ips.avg_fragmentation_in_percent >= 40 THEN 'REBUILD'
-          WHEN ips.avg_fragmentation_in_percent >= 10 THEN 'REORGANIZE'
-          ELSE 'OK'
-        END                                        AS recommended_action
-      FROM (
-        SELECT TOP 25 object_id
-        FROM   sys.partitions
-        WHERE  rows > 5000 AND index_id > 0
-        GROUP  BY object_id
-        ORDER  BY MAX(rows) DESC
-      ) big_tables
-      CROSS APPLY sys.dm_db_index_physical_stats(
-                    DB_ID(), big_tables.object_id, NULL, NULL, 'LIMITED') ips
-      JOIN sys.indexes i
-        ON  i.object_id = ips.object_id
-        AND i.index_id  = ips.index_id
-      WHERE ips.index_id > 0
-        AND ips.page_count > 200
-        AND ips.avg_fragmentation_in_percent >= 10
-        AND i.name IS NOT NULL
-      ORDER BY ips.avg_fragmentation_in_percent DESC
-      OPTION (FAST 10)
-    `);
-    fragCache.set(req.params.id, { ts: Date.now(), data: r.recordset || [] });
-    res.json({ rows: r.recordset || [], ts: Date.now(), cached: false });
-  } catch (err) {
-    console.error('[profiler/index-fragmentation]', err.message);
-    res.status(400).json({ error: err.message });
-  }
-});
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
