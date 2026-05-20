@@ -72,7 +72,7 @@ const PILLS = [
 ]
 
 // ── Inner panel (shared between compact + expanded) ───────────────────────────
-function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef }) {
+function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef, failedCount = 0 }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
 
@@ -153,6 +153,14 @@ function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef }
       <div className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0" style={{ borderBottom: '1px solid var(--divider)' }}>
         <span style={{ color: 'var(--val-batch)' }}>{GEAR_SVG}</span>
         <span className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>SQL Agent Jobs</span>
+        {failedCount > 0 && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
+            background: 'rgba(239,68,68,.15)', color: '#ef4444',
+          }}>
+            {failedCount} failed 24h
+          </span>
+        )}
         <span className="text-xs px-2 py-0.5 rounded font-semibold tabular-nums ml-1" style={{ background: 'var(--badge-bg)', color: 'var(--badge-text)' }}>
           {(jobs || []).length}
         </span>
@@ -304,7 +312,7 @@ function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef }
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export default function JobsPanel({ jobs, connId }) {
+export default function JobsPanel({ jobs, connId, failedCount = 0 }) {
   const [expanded, setExpanded] = useState(false)
   const compactRef  = useRef(null)
   const expandedRef = useRef(null)
@@ -320,6 +328,7 @@ export default function JobsPanel({ jobs, connId }) {
           onExpand={() => setExpanded(true)}
           onClose={() => setExpanded(false)}
           scrollRef={compactRef}
+          failedCount={failedCount}
         />
       </div>
 
@@ -348,6 +357,7 @@ export default function JobsPanel({ jobs, connId }) {
               onExpand={() => {}}
               onClose={() => setExpanded(false)}
               scrollRef={expandedRef}
+              failedCount={failedCount}
             />
           </div>
         </>,
