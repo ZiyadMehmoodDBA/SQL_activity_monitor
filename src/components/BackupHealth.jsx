@@ -62,13 +62,13 @@ export default function BackupHealth({ rows }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
+          {rows.map((r) => {
             const isFullRec = r.recovery_model_desc !== 'SIMPLE'
             const fullCrit  = !r.last_full || ageMs(r.last_full) > FULL_CRIT_MS
             const logCrit   = isFullRec && (!r.last_log || ageMs(r.last_log) > LOG_CRIT_MS)
             const rowAlert  = fullCrit || logCrit
             return (
-              <tr key={i} className="wia-row"
+              <tr key={r.database_name} className="wia-row"
                 style={rowAlert ? { borderLeft: '2px solid rgba(239,68,68,.4)' } : undefined}>
                 <td className="wia-td" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                   {r.database_name}
