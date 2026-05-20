@@ -4,7 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Live web-based SQL Server Activity Monitor. Clones SSMS Activity Monitor with animated scrolling charts and real-time data tables. Targets `HCMPSDB01\HCMPS`.
+Live web-based SQL Server Activity Monitor. Clones SSMS Activity Monitor with animated scrolling charts and real-time data tables.
+
+## ⚠ Environment boundaries — READ BEFORE GENERATING ANY SQL
+
+| Environment | Server | Database |
+|-------------|--------|----------|
+| **PRODUCTION** | `HCMPSDB01\HCMPS` | `medcare_db` |
+| **DEV** | *(set in `.env` — ask the developer)* | `medcare_db_dev` |
+
+**Never generate SQL with `USE [medcare_db]` unless explicitly told target is production.**
+When asked to write scripts "for dev", always use `USE [medcare_db_dev]`.
+When in doubt, omit the `USE` statement and add a comment: `-- run against: medcare_db_dev`.
 
 ## Running
 
