@@ -117,8 +117,8 @@ export default function ErrorLog({ connId }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} className="wia-row">
+                  {rows.map((r) => (
+                    <tr key={`${r.event_time}-${r.error_number}`} className="wia-row">
                       <td className="wia-td tabular-nums" style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 10 }}>
                         {fmtTime(r.event_time)}
                       </td>
