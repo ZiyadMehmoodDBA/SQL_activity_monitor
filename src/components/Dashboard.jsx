@@ -14,7 +14,8 @@ import DbSizes from './DbSizes'
 import DbSizeTrend from './DbSizeTrend'
 import DriveMonitor from './DriveMonitor'
 import WhoIsActive from './WhoIsActive'
-import QueryProfiler from './QueryProfiler'
+import BackupHealth, { ageMs, FULL_CRIT_MS, LOG_CRIT_MS } from './BackupHealth'
+import ErrorLog from './ErrorLog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
@@ -133,6 +134,14 @@ function sortRows(rows, { col, dir }) {
 const BLOCKING_ROW_STYLE  = (_, i) => i === 0 ? { background: '#fef2f2' } : undefined
 const DEADLOCK_ROW_STYLE  = () => ({ background: '#fff7ed' })
 
+const VTABLE_SECTION_CFG = {
+  file_io:          { sectionId: 'fileio',    title: 'Data File I/O',            sortKey: 'fileio',    height: 280, metricKey: 'dataFileIO' },
+  recent_expensive: { sectionId: 'recent',    title: 'Recent Expensive Queries', sortKey: 'recent',    height: 280, metricKey: 'recentExpensive' },
+  active_expensive: { sectionId: 'active',    title: 'Active Expensive Queries', sortKey: 'active',    height: 280, metricKey: 'activeExpensive' },
+  blocking:         { sectionId: 'blocking',  title: 'Blocking Chains',          sortKey: 'blocking',  height: 240, metricKey: 'blocking',  rowStyle: BLOCKING_ROW_STYLE, alertWhen: true },
+  deadlocks:        { sectionId: 'deadlocks', title: 'Deadlock History',         sortKey: 'deadlocks', height: 240, metricKey: 'deadlocks', rowStyle: DEADLOCK_ROW_STYLE, alertWhen: true },
+}
+
 // ── Chart config builder (pure, no side effects) ──────────────────────────────
 function buildCharts(m, sp, conn, p) {
   return [
@@ -150,19 +159,16 @@ export default memo(function Dashboard({ connId }) {
   const { state, dispatch } = useApp()
   const conn = state.connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
-  const [killDialog,     setKillDialog]     = useState(null)   // { count } for kill-all-sleeping
-  const [killConfirmed,  setKillConfirmed]  = useState(false)
-  const [singleKill,     setSingleKill]     = useState(null)   // { sessionId, login, host }
-  const [singleConfirmed,setSingleConfirmed]= useState(false)
-  const [singleKilling,  setSingleKilling]  = useState(false)
-  const [singleKillErr,  setSingleKillErr]  = useState(null)
-  const [killResult,     setKillResult]     = useState(null)
+  const [bulkKill,   setBulkKill]   = useState(null)   // null | { count, confirmed }
+  const [singleKill, setSingleKill] = useState(null)   // null | { sessionId, login, host, confirmed, killing, error }
+  const [killResult, setKillResult] = useState(null)
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
     clearTimeout(killResultTimer.current)
     setKillResult(result)
     killResultTimer.current = setTimeout(() => setKillResult(null), 5000)
   }, [])
+  useEffect(() => () => clearTimeout(killResultTimer.current), [])
 
   if (!conn) return null
 
@@ -221,17 +227,36 @@ export default memo(function Dashboard({ connId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sortedDeadlocks = useMemo(() => sortRows(m?.deadlocks,       conn.sortState.deadlocks), [m?.deadlocks,       conn.sortState.deadlocks])
 
+  const sortedByKey = { fileio: sortedFileio, recent: sortedRecent, active: sortedActive, blocking: sortedBlocking, deadlocks: sortedDeadlocks }
+
+  const backupCritCount = useMemo(
+    () => (m?.backupHealth || []).filter(r => {
+      const fullCrit = ageMs(r.last_full) > FULL_CRIT_MS
+      const logCrit  = r.recovery_model_desc !== 'SIMPLE' && ageMs(r.last_log) > LOG_CRIT_MS
+      return fullCrit || logCrit
+    }).length,
+    [m?.backupHealth]
+  )
+
+  const failedJobsCount = useMemo(
+    () => (m?.jobs || []).filter(j =>
+      j.status === 'Failed' &&
+      j.last_run_date &&
+      Date.now() - new Date(j.last_run_date).getTime() < 86_400_000
+    ).length,
+    [m?.jobs]
+  )
+
   // ── Kill sleeping ─────────────────────────────────────────────────────────
   const killAllSleeping = useCallback(() => {
     const sleeping = (m?.processes || []).filter(r => String(r.status).toLowerCase() === 'sleeping')
     if (sleeping.length === 0) { showKillResult({ error: 'No sleeping sessions to kill.' }); return }
     setKillResult(null)
-    setKillDialog({ count: sleeping.length })
+    setBulkKill({ count: sleeping.length, confirmed: false })
   }, [m?.processes])
 
   const confirmKillSleeping = useCallback(async () => {
-    setKillDialog(null)
-    setKillConfirmed(false)
+    setBulkKill(null)
     try {
       const res  = await fetch(`/api/connections/${connId}/kill-sleeping`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       const data = await res.json()
@@ -244,8 +269,7 @@ export default memo(function Dashboard({ connId }) {
 
   const confirmSingleKill = useCallback(async () => {
     if (!singleKill) return
-    setSingleKilling(true)
-    setSingleKillErr(null)
+    setSingleKill(s => s ? { ...s, killing: true, error: null } : null)
     try {
       const res  = await fetch(`/api/connections/${connId}/kill`, {
         method: 'POST',
@@ -255,17 +279,27 @@ export default memo(function Dashboard({ connId }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setSingleKill(null)
-      setSingleConfirmed(false)
       showKillResult({ killed: 1 })
     } catch (err) {
-      setSingleKillErr(err.message)
-    } finally {
-      setSingleKilling(false)
+      setSingleKill(s => s ? { ...s, killing: false, error: err.message } : null)
     }
   }, [connId, singleKill, showKillResult])
 
   // ── Section renderer ──────────────────────────────────────────────────────
   function renderSection(id) {
+    const cfg = VTABLE_SECTION_CFG[id]
+    if (cfg) {
+      return (
+        <CollapsibleSection key={id} connId={connId} sectionId={cfg.sectionId} title={cfg.title}
+          badge={<SectionBadge count={m?.[cfg.metricKey]?.length || 0} alertWhen={cfg.alertWhen} />}>
+          <VirtualTable rows={sortedByKey[cfg.sortKey]} columns={TABLE_COLS[cfg.sortKey]}
+            height={cfg.height}
+            sortCol={conn.sortState[cfg.sortKey].col} sortDir={conn.sortState[cfg.sortKey].dir}
+            onSort={col => handleSort(cfg.sortKey, col)}
+            rowStyle={cfg.rowStyle} />
+        </CollapsibleSection>
+      )
+    }
     switch (id) {
       case 'db_sizes':
         return (
@@ -281,37 +315,23 @@ export default memo(function Dashboard({ connId }) {
         )
       case 'processes':
         return (
-          <CollapsibleSection
-            key={id}
-            connId={connId}
-            sectionId="proc"
-            title="Processes"
+          <CollapsibleSection key={id} connId={connId} sectionId="proc" title="Processes"
             badge={<SectionBadge count={m?.processes?.length || 0} />}
             extra={
-              <button
-                type="button"
-                onClick={e => { e.stopPropagation(); killAllSleeping() }}
-                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors"
-              >
+              <button type="button" onClick={e => { e.stopPropagation(); killAllSleeping() }}
+                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors">
                 Kill All Sleeping
               </button>
             }
           >
-            <VirtualTable
-              rows={sortedProc}
-              columns={TABLE_COLS.proc}
-              height={320}
-              sortCol={conn.sortState.proc.col}
-              sortDir={conn.sortState.proc.dir}
-              onSort={col => handleSort('proc', col)}
-              extraCol
+            <VirtualTable rows={sortedProc} columns={TABLE_COLS.proc} height={320}
+              sortCol={conn.sortState.proc.col} sortDir={conn.sortState.proc.dir}
+              onSort={col => handleSort('proc', col)} extraCol
               renderExtraCell={row => (
                 String(row.status || '').toLowerCase() === 'sleeping'
-                  ? <button className="kill-btn" onClick={() => {
-                      setSingleKill({ sessionId: row.session_id, login: row.login_name, host: row.host_name })
-                      setSingleConfirmed(false)
-                      setSingleKillErr(null)
-                    }}>Kill</button>
+                  ? <button className="kill-btn" onClick={() =>
+                      setSingleKill({ sessionId: row.session_id, login: row.login_name, host: row.host_name, confirmed: false, killing: false, error: null })
+                    }>Kill</button>
                   : null
               )}
             />
@@ -326,47 +346,17 @@ export default memo(function Dashboard({ connId }) {
               sortCol={conn.sortState.waits.col} sortDir={conn.sortState.waits.dir} onSort={col => handleSort('waits', col)} />
           </CollapsibleSection>
         )
-      case 'file_io':
-        return (
-          <CollapsibleSection key={id} connId={connId} sectionId="fileio" title="Data File I/O" badge={<SectionBadge count={m?.dataFileIO?.length || 0} />}>
-            <VirtualTable rows={sortedFileio} columns={TABLE_COLS.fileio} height={280}
-              sortCol={conn.sortState.fileio.col} sortDir={conn.sortState.fileio.dir} onSort={col => handleSort('fileio', col)} />
-          </CollapsibleSection>
-        )
-      case 'recent_expensive':
-        return (
-          <CollapsibleSection key={id} connId={connId} sectionId="recent" title="Recent Expensive Queries" badge={<SectionBadge count={m?.recentExpensive?.length || 0} />}>
-            <VirtualTable rows={sortedRecent} columns={TABLE_COLS.recent} height={280}
-              sortCol={conn.sortState.recent.col} sortDir={conn.sortState.recent.dir} onSort={col => handleSort('recent', col)} />
-          </CollapsibleSection>
-        )
-      case 'active_expensive':
-        return (
-          <CollapsibleSection key={id} connId={connId} sectionId="active" title="Active Expensive Queries" badge={<SectionBadge count={m?.activeExpensive?.length || 0} />}>
-            <VirtualTable rows={sortedActive} columns={TABLE_COLS.active} height={280}
-              sortCol={conn.sortState.active.col} sortDir={conn.sortState.active.dir} onSort={col => handleSort('active', col)} />
-          </CollapsibleSection>
-        )
       case 'who_is_active':
         return <WhoIsActive key={id} connId={connId} />
-      case 'blocking':
+      case 'backup_health':
         return (
-          <CollapsibleSection key={id} connId={connId} sectionId="blocking" title="Blocking Chains" badge={<SectionBadge count={m?.blocking?.length || 0} alertWhen />}>
-            <VirtualTable rows={sortedBlocking} columns={TABLE_COLS.blocking} height={240}
-              sortCol={conn.sortState.blocking.col} sortDir={conn.sortState.blocking.dir} onSort={col => handleSort('blocking', col)}
-              rowStyle={BLOCKING_ROW_STYLE} />
+          <CollapsibleSection key={id} connId={connId} sectionId="backup_health" title="Backup Health"
+            badge={<SectionBadge count={backupCritCount} alertWhen={backupCritCount > 0} />}>
+            <BackupHealth rows={m?.backupHealth} />
           </CollapsibleSection>
         )
-      case 'deadlocks':
-        return (
-          <CollapsibleSection key={id} connId={connId} sectionId="deadlocks" title="Deadlock History" badge={<SectionBadge count={m?.deadlocks?.length || 0} alertWhen />}>
-            <VirtualTable rows={sortedDeadlocks} columns={TABLE_COLS.deadlocks} height={240}
-              sortCol={conn.sortState.deadlocks.col} sortDir={conn.sortState.deadlocks.dir} onSort={col => handleSort('deadlocks', col)}
-              rowStyle={DEADLOCK_ROW_STYLE} />
-          </CollapsibleSection>
-        )
-      case 'query_profiler':
-        return <QueryProfiler key={id} connId={connId} />
+      case 'error_log':
+        return <ErrorLog key={id} connId={connId} />
       default:
         return null
     }
@@ -375,44 +365,35 @@ export default memo(function Dashboard({ connId }) {
   return (
     <div>
       {/* Kill sleeping — confirm dialog */}
-      <Dialog open={!!killDialog} onOpenChange={open => !open && setKillDialog(null)}>
+      <Dialog open={!!bulkKill} onOpenChange={open => !open && setBulkKill(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Kill Sleeping Sessions</DialogTitle>
           </DialogHeader>
           <DialogBody>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Kill <strong style={{ color: 'var(--text-primary)' }}>{killDialog?.count}</strong> sleeping session{killDialog?.count !== 1 ? 's' : ''} on{' '}
+              Kill <strong style={{ color: 'var(--text-primary)' }}>{bulkKill?.count}</strong> sleeping session{bulkKill?.count !== 1 ? 's' : ''} on{' '}
               <strong style={{ color: 'var(--text-primary)' }}>{conn.label}</strong>?
             </p>
             <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>This cannot be undone.</p>
             <label className="flex items-start gap-2 mb-6 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={killConfirmed}
-                onChange={e => setKillConfirmed(e.target.checked)}
-                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
-              />
+              <input type="checkbox" checked={!!bulkKill?.confirmed}
+                onChange={e => setBulkKill(b => b ? { ...b, confirmed: e.target.checked } : null)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }} />
               <span className="text-xs" style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                 I understand this terminates sessions on a <strong>production</strong> server and cannot be undone.
               </span>
             </label>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
-                <button
-                  onClick={() => setKillConfirmed(false)}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                  style={{ background: 'var(--divider)', border: '1px solid var(--input-border)', color: 'var(--text-secondary)' }}
-                >
+                <button className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  style={{ background: 'var(--divider)', border: '1px solid var(--input-border)', color: 'var(--text-secondary)' }}>
                   Cancel
                 </button>
               </DialogClose>
-              <button
-                onClick={confirmKillSleeping}
-                disabled={!killConfirmed}
+              <button onClick={confirmKillSleeping} disabled={!bulkKill?.confirmed}
                 className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity"
-                style={{ background: killConfirmed ? '#dc2626' : '#9ca3af', cursor: killConfirmed ? 'pointer' : 'not-allowed' }}
-              >
+                style={{ background: bulkKill?.confirmed ? '#dc2626' : '#9ca3af', cursor: bulkKill?.confirmed ? 'pointer' : 'not-allowed' }}>
                 Kill Sessions
               </button>
             </div>
@@ -421,59 +402,50 @@ export default memo(function Dashboard({ connId }) {
       </Dialog>
 
       {/* Single session kill — confirm dialog */}
-      {singleKill && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 2000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--input-border)',
-            borderRadius: 12, padding: '24px 28px', maxWidth: 400, width: '100%',
-            boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
-              Kill session {singleKill.sessionId}?
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
-              Terminate SPID <strong>{singleKill.sessionId}</strong>
-              {singleKill.login ? ` (${singleKill.login}` : ''}
-              {singleKill.host  ? ` @ ${singleKill.host})` : (singleKill.login ? ')' : '')}.
+      <Dialog open={!!singleKill} onOpenChange={open => !open && setSingleKill(null)}>
+        <DialogContent style={{ maxWidth: 400 }}>
+          <DialogHeader>
+            <DialogTitle>Kill session {singleKill?.sessionId}?</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Terminate SPID <strong>{singleKill?.sessionId}</strong>
+              {singleKill?.login ? ` (${singleKill.login}` : ''}
+              {singleKill?.host  ? ` @ ${singleKill.host})` : (singleKill?.login ? ')' : '')}.
               Any open transaction will be rolled back.
-            </div>
-            {singleKillErr && (
+            </p>
+            {singleKill?.error && (
               <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(239,68,68,.12)',
                 border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>
-                {singleKillErr}
+                {singleKill.error}
               </div>
             )}
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 18, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={singleConfirmed}
-                onChange={e => setSingleConfirmed(e.target.checked)}
-                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }}
-              />
+              <input type="checkbox" checked={!!singleKill?.confirmed}
+                onChange={e => setSingleKill(s => s ? { ...s, confirmed: e.target.checked } : null)}
+                style={{ marginTop: 2, accentColor: '#dc2626', flexShrink: 0 }} />
               <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                 I understand this terminates a session on a <strong>production</strong> server and cannot be undone.
               </span>
             </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => { setSingleKill(null); setSingleKillErr(null); setSingleConfirmed(false) }}
-                disabled={singleKilling}
-                style={{ padding: '7px 16px', borderRadius: 7, border: '1px solid var(--input-border)',
-                  background: 'var(--input-bg)', color: 'var(--text-secondary)', fontSize: 13,
-                  fontWeight: 600, cursor: 'pointer' }}>
-                Cancel
-              </button>
-              <button
-                onClick={confirmSingleKill}
-                disabled={singleKilling || !singleConfirmed}
-                style={{ padding: '7px 16px', borderRadius: 7, border: 'none',
-                  background: singleKilling || !singleConfirmed ? '#9ca3af' : '#dc2626', color: '#fff', fontSize: 13,
-                  fontWeight: 700, cursor: (singleKilling || !singleConfirmed) ? 'not-allowed' : 'pointer' }}>
-                {singleKilling ? 'Killing…' : 'Kill Session'}
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <button disabled={singleKill?.killing}
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  style={{ background: 'var(--divider)', border: '1px solid var(--input-border)', color: 'var(--text-secondary)' }}>
+                  Cancel
+                </button>
+              </DialogClose>
+              <button onClick={confirmSingleKill} disabled={singleKill?.killing || !singleKill?.confirmed}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity"
+                style={{ background: (singleKill?.killing || !singleKill?.confirmed) ? '#9ca3af' : '#dc2626',
+                  cursor: (singleKill?.killing || !singleKill?.confirmed) ? 'not-allowed' : 'pointer' }}>
+                {singleKill?.killing ? 'Killing…' : 'Kill Session'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
 
       {/* Kill sleeping — result toast */}
       {killResult && (
@@ -533,7 +505,7 @@ export default memo(function Dashboard({ connId }) {
       {/* Row 3: Jobs + Sessions */}
       {(showJobs || showSessions) && (
         <div className={`gap-6 mb-6 ${showJobs && showSessions ? 'grid grid-cols-12' : 'grid grid-cols-1'}`}>
-          {showJobs     && <JobsPanel     jobs={m?.jobs || []}           connId={connId} />}
+          {showJobs     && <JobsPanel     jobs={m?.jobs || []}           connId={connId} failedCount={failedJobsCount} />}
           {showSessions && <SessionsPanel processes={m?.processes || []} connId={connId} />}
         </div>
       )}
