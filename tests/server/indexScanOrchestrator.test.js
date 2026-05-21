@@ -11,6 +11,7 @@ import {
   runScan,
 } from '../../server/indexScanOrchestrator.js'
 import { MemoryScanStore } from '../../server/indexScanStore.js'
+import { randomUUID } from 'node:crypto'
 
 // Minimal mock pool factory
 function makePool(recordsets) {
@@ -200,8 +201,6 @@ describe('scanDatabaseWithTimeout', () => {
 })
 
 describe('runScan', () => {
-  const SCAN_TTL_MS = 2 * 60 * 60 * 1000
-
   function makePool() {
     return {
       request: () => ({
@@ -217,7 +216,6 @@ describe('runScan', () => {
 
   it('transitions to completed and sets results', async () => {
     const store = new MemoryScanStore()
-    const { randomUUID } = await import('node:crypto')
     const scanId = randomUUID()
     store.create(scanId, 'conn1', 'LIMITED', ['db1', 'db2'])
 
@@ -235,7 +233,6 @@ describe('runScan', () => {
 
   it('sets completed_with_warnings when databases timed out', async () => {
     const store = new MemoryScanStore()
-    const { randomUUID } = await import('node:crypto')
     const scanId = randomUUID()
     store.create(scanId, 'conn1', 'LIMITED', ['db1'])
 
@@ -247,7 +244,6 @@ describe('runScan', () => {
 
   it('stays cancelled when cancelled before run completes', async () => {
     const store = new MemoryScanStore()
-    const { randomUUID } = await import('node:crypto')
     const scanId = randomUUID()
     store.create(scanId, 'conn1', 'LIMITED', ['db1', 'db2'])
 
@@ -259,7 +255,6 @@ describe('runScan', () => {
 
   it('sets status to failed on pool error', async () => {
     const store = new MemoryScanStore()
-    const { randomUUID } = await import('node:crypto')
     const scanId = randomUUID()
     store.create(scanId, 'conn1', 'LIMITED', ['db1'])
 

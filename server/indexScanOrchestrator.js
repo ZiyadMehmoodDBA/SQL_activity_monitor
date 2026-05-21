@@ -1,5 +1,7 @@
 'use strict'
 
+const { scanDatabase } = require('./indexScanQueries.js')
+
 async function fetchUserDatabases(pool) {
   const r = await pool.request().query(`
     SELECT DB_NAME(database_id) AS db_name
@@ -138,8 +140,6 @@ async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
     clearTimeout(timerId)
   }
 }
-
-const { scanDatabase } = require('./indexScanQueries.js')
 
 const SCAN_TTL_MS = 2 * 60 * 60 * 1000
 const DEFAULT_TIMEOUT = parseInt(process.env.INDEX_TIMEOUT_PER_DB_MS) || 120_000
