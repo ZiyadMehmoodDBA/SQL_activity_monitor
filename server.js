@@ -7,6 +7,9 @@ const { randomUUID } = require('crypto');
 const path       = require('path');
 const fs         = require('fs');
 
+const { MemoryScanStore }   = require('./server/indexScanStore.js')
+const { runScan, calcProgressPct, paginateResults, SCAN_TTL_MS } = require('./server/indexScanOrchestrator.js')
+
 const PORT    = parseInt(process.env.PORT)              || 3000;
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS)  || 2000;
 
@@ -86,6 +89,13 @@ async function takeDbSizeSnapshot(pool, serverKey) {
 // ─── Connection store ─────────────────────────────────────────────────────────
 // Map<id, { pool, label, server, handle, prevIO }>
 const connections = new Map();
+
+const scanStore = new MemoryScanStore()
+
+setInterval(() => {
+  const n = scanStore.cleanup(Date.now())
+  if (n > 0) console.log(`[index-health] Cleaned up ${n} expired scan(s)`)
+}, 30 * 60 * 1000)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function requireConn(req, res) {
@@ -847,6 +857,117 @@ app.get('/api/connections/:id/error-log', async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// ─── Index Health API ─────────────────────────────────────────────────────────
+const VALID_SCAN_MODES = new Set(['LIMITED', 'SAMPLED', 'DETAILED'])
+
+app.post('/api/connections/:id/index-health/scan', async (req, res) => {
+  const conn = requireConn(req, res)
+  if (!conn) return
+
+  const { mode = 'LIMITED', databases = [] } = req.body
+  if (!VALID_SCAN_MODES.has(mode)) {
+    return res.status(400).json({ error: 'Invalid mode. Must be LIMITED, SAMPLED, or DETAILED.' })
+  }
+
+  const existing = scanStore.getActiveScanByConn(req.params.id)
+  if (existing) {
+    return res.status(409).json({ error: 'Scan already in progress.', scanId: existing.scanId })
+  }
+
+  const scanId = randomUUID()
+  const dbs    = Array.isArray(databases) && databases.length > 0 ? databases : []
+  scanStore.create(scanId, req.params.id, mode, dbs)
+
+  runScan(conn.pool, scanId, scanStore)
+    .catch(err => console.error(`[index-health] runScan error ${scanId.slice(0, 8)}:`, err.message))
+
+  res.status(202).json({ scanId })
+})
+
+app.get('/api/connections/:id/index-health/scan/:scanId/progress', (req, res) => {
+  const conn = requireConn(req, res)
+  if (!conn) return
+
+  const scan = scanStore.get(req.params.scanId)
+  if (!scan || scan.connId !== req.params.id) {
+    return res.status(404).json({ error: 'Scan not found.' })
+  }
+
+  const pct = calcProgressPct(scan.completedWeight, scan.totalWeight)
+
+  let eta = null
+  if (pct > 5 && pct < 100) {
+    const elapsed = Date.now() - scan.createdAt
+    eta = Math.round((elapsed / pct) * (100 - pct) / 1000)
+  }
+
+  res.json({
+    scanId:       scan.scanId,
+    status:       scan.status,
+    pct:          Math.round(pct),
+    currentDb:    scan.currentDb,
+    completedDbs: scan.completedDbs.length,
+    totalDbs:     scan.totalDbs,
+    timedOutDbs:  scan.timedOutDbs,
+    eta,
+  })
+})
+
+app.get('/api/connections/:id/index-health/scan/:scanId/results', (req, res) => {
+  const conn = requireConn(req, res)
+  if (!conn) return
+
+  const scan = scanStore.get(req.params.scanId)
+  if (!scan || scan.connId !== req.params.id) {
+    return res.status(404).json({ error: 'Scan not found or expired.' })
+  }
+
+  if (scan.status === 'pending' || scan.status === 'running') {
+    return res.status(202).json({ error: 'Scan still in progress.', status: scan.status })
+  }
+
+  if (scan.status === 'failed') {
+    return res.status(400).json({ error: scan.error || 'Scan failed.', status: 'failed' })
+  }
+
+  const { tab = 'fragmented', page = '1', pageSize = '50', db, search } = req.query
+  const pgOpts = { page: parseInt(page, 10) || 1, pageSize: parseInt(pageSize, 10) || 50, db, search }
+  const results = scan.results || { fragmented: [], missing: [], unused: [], duplicate: [], summary: {} }
+
+  const unusedAndDuplicate = [
+    ...results.unused.map(r => ({ ...r, _rowType: 'unused' })),
+    ...results.duplicate.map(r => ({ ...r, _rowType: 'duplicate' })),
+  ]
+
+  res.json({
+    status:      scan.status,
+    metadata:    scan.metadata,
+    summary:     results.summary,
+    timedOutDbs: scan.timedOutDbs,
+    fragmented:  tab === 'fragmented'           ? paginateResults(results.fragmented, pgOpts)       : undefined,
+    missing:     tab === 'missing'              ? paginateResults(results.missing, pgOpts)           : undefined,
+    unusedAndDuplicate: tab === 'unusedAndDuplicate' ? paginateResults(unusedAndDuplicate, pgOpts)  : undefined,
+  })
+})
+
+app.delete('/api/connections/:id/index-health/scan/:scanId', (req, res) => {
+  const conn = requireConn(req, res)
+  if (!conn) return
+
+  const scan = scanStore.get(req.params.scanId)
+  if (!scan || scan.connId !== req.params.id) {
+    return res.status(404).json({ error: 'Scan not found.' })
+  }
+
+  const cancelled = scanStore.cancel(req.params.scanId)
+  if (!cancelled) {
+    return res.status(400).json({ error: `Cannot cancel scan with status: ${scan.status}` })
+  }
+
+  console.log(`[index-health] Scan cancelled: ${req.params.scanId.slice(0, 8)} (${conn.label})`)
+  res.status(204).end()
+})
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
