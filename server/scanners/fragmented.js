@@ -2,6 +2,8 @@
 
 const { executeDMV } = require('../repository/executeDMV.js')
 
+const VALID_MODES = new Set(['LIMITED', 'SAMPLED', 'DETAILED'])
+
 function mapRecommendation(frag, pages) {
   if (pages < 1000) return 'SKIP_SMALL'
   if (frag >= 30)   return 'REBUILD'
@@ -10,6 +12,7 @@ function mapRecommendation(frag, pages) {
 }
 
 async function getFragmented(pool, db, mode) {
+  if (!VALID_MODES.has(mode)) throw new Error(`Invalid scan mode: ${mode}`)
   const rows = await executeDMV(pool, db, `
     SELECT
       s.name                           AS schema_name,
