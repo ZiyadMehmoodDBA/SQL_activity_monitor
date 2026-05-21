@@ -75,6 +75,14 @@ describe('useIndexHealthApi', () => {
       expect(url).toContain('search=idx')
     })
 
+    it('omits db param when db is all', async () => {
+      mockFetch(200, { status: 'completed', summary: {}, metadata: {}, timedOutDbs: [], fragmented: { rows: [], total: 0, page: 1, pageSize: 50 } })
+      const { result } = renderHook(() => useIndexHealthApi(CONN))
+      await result.current.fetchResults(SCAN_ID, 'fragmented', { page: 1, pageSize: 50, db: 'all' })
+      const url = global.fetch.mock.calls[0][0]
+      expect(url).not.toContain('db=')
+    })
+
     it('returns { expired: true } on 404', async () => {
       mockFetch(404, { error: 'not found' })
       const { result } = renderHook(() => useIndexHealthApi(CONN))
