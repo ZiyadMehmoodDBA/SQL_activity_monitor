@@ -820,11 +820,16 @@ app.get('/api/connections/:id/error-log', async (req, res) => {
   try {
     const r = await conn.pool.request().query(`
       SELECT TOP 50
-        DATEADD(ms, -1 * (osi.ms_ticks - rbf.timestamp), GETDATE())           AS event_time,
-        rbf.record.value('(./Record/Exception/Error)[1]',    'int')            AS error_number,
-        rbf.record.value('(./Record/Exception/Severity)[1]', 'int')            AS severity,
-        rbf.record.value('(./Record/Exception/State)[1]',    'int')            AS state,
-        rbf.record.value('(./Record/Exception/Message)[1]',  'nvarchar(4000)') AS message
+        DATEADD(ms, -1 * (osi.ms_ticks - rbf.timestamp), GETDATE())            AS event_time,
+        rbf.record.value('(./Record/Exception/Error)[1]',     'int')            AS error_number,
+        rbf.record.value('(./Record/Exception/Severity)[1]',  'int')            AS severity,
+        rbf.record.value('(./Record/Exception/State)[1]',     'int')            AS state,
+        COALESCE(
+          NULLIF(rbf.record.value('(./Record/Exception/Message)[1]', 'nvarchar(4000)'), ''),
+          (SELECT TOP 1 text FROM sys.messages
+           WHERE message_id = rbf.record.value('(./Record/Exception/Error)[1]', 'int')
+             AND language_id = 1033)
+        )                                                                        AS message
       FROM (
         SELECT timestamp, CAST(record AS XML) AS record
         FROM sys.dm_os_ring_buffers
