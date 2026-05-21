@@ -11,7 +11,8 @@ async function executeDMV(pool, db, sqlBody) {
     SET LOCK_TIMEOUT 5000;
     ${sqlBody}
   `)
-  return result.recordset
+  const sets = result.recordsets
+  return (sets && sets.length > 0) ? sets[sets.length - 1] : result.recordset
 }
 
 module.exports = { executeDMV, quoteName }
