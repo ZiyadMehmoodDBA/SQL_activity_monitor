@@ -102,7 +102,7 @@ export default function DetailModal({ row, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--divider)', flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{row.schema_name}.{row.table_name}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{row.schema_name || '?'}.{row.table_name || '?'}</div>
           </div>
           <button
             aria-label="Close"
