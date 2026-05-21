@@ -80,7 +80,7 @@ function computeHealthScore(dbResults) {
   const disablePenalty = Math.min((disabledCount  / totalIndexes) * 100, 100)
 
   const score = Math.max(0, Math.round(
-    100 - (fragPenalty * 0.6 + missingPenalty * 0.3 + dupPenalty * 0.1 + disablePenalty * 0.0)
+    100 - (fragPenalty * 0.4 + missingPenalty * 0.3 + dupPenalty * 0.15 + disablePenalty * 0.15)
   ))
   const severity = score > 90 ? 'Healthy' : score >= 70 ? 'Warning' : 'Critical'
 

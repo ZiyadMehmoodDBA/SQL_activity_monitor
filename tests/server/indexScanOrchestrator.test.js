@@ -101,10 +101,10 @@ describe('computeHealthScore', () => {
     const dbResults = [{
       totalIndexes: 10,
       disabledCount: 0,
-      fragmented: [{ recommendation: 'REBUILD' }, { recommendation: 'REBUILD' }],
-      missing: [],
+      fragmented: [{ recommendation: 'REBUILD' }, { recommendation: 'REBUILD' }, { recommendation: 'REBUILD' }, { recommendation: 'REBUILD' }],
+      missing: [{ index_name: 'IX_1' }],
       unused: [],
-      duplicate: [],
+      duplicate: [{ index_name: 'IX_2' }],
     }]
     const result = computeHealthScore(dbResults)
     expect(result.severity).toBe('Warning')
