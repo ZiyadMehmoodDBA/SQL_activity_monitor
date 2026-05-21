@@ -215,7 +215,8 @@ async function runScan(pool, scanId, store, opts = {}) {
         store.update(scanId, { currentDb: db })
 
         const dbResult = await scanDatabaseWithTimeout(
-          pool, db, scan.scanMode, timeoutPerDbMs, scanDatabase
+          pool, db, scan.scanMode, timeoutPerDbMs,
+          (p, d, m) => scanDatabase(p, d, m, serverMeta)
         )
         allDbResults.push(dbResult)
 
@@ -243,6 +244,7 @@ async function runScan(pool, scanId, store, opts = {}) {
       status: timedOutDbs.length > 0 ? 'completed_with_warnings' : 'completed',
       currentDb: null,
       results: {
+        databases:  allDbResults,
         fragmented: allDbResults.flatMap(r => r.fragmented),
         missing:    allDbResults.flatMap(r => r.missing),
         unused:     allDbResults.flatMap(r => r.unused),
