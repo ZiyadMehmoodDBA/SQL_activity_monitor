@@ -15,6 +15,7 @@ export default function ScanProgress({ phase, progress }) {
       {/* Progress bar */}
       <div
         role="progressbar"
+        aria-label="Scan progress"
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
@@ -25,7 +26,7 @@ export default function ScanProgress({ phase, progress }) {
 
       {/* Status line */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
-        {currentDb && (
+        {currentDb !== null && (
           <span>Scanning <strong style={{ color: 'var(--text-primary)' }}>{currentDb}</strong></span>
         )}
         {totalDbs > 0 && (

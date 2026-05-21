@@ -51,4 +51,15 @@ describe('ScanProgress', () => {
     render(<ScanProgress phase="pending" progress={{ pct: 0, currentDb: null, completedDbs: 0, totalDbs: 0, timedOutDbs: [], eta: null }} />)
     expect(screen.getByRole('progressbar')).toBeInTheDocument()
   })
+
+  it('renders progress bar with 0% when phase is pending and progress is null', () => {
+    render(<ScanProgress phase="pending" progress={null} />)
+    const bar = screen.getByRole('progressbar')
+    expect(bar.getAttribute('aria-valuenow')).toBe('0')
+  })
+
+  it('does not show timed-out badge when timedOutDbs is empty', () => {
+    render(<ScanProgress phase="running" progress={baseProgress} />)
+    expect(screen.queryByText(/timed out/i)).not.toBeInTheDocument()
+  })
 })
