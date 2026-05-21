@@ -16,6 +16,7 @@ import DriveMonitor from './DriveMonitor'
 import WhoIsActive from './WhoIsActive'
 import BackupHealth, { ageMs, FULL_CRIT_MS, LOG_CRIT_MS } from './BackupHealth'
 import ErrorLog from './ErrorLog'
+import IndexHealth from './IndexHealth'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
@@ -357,6 +358,8 @@ export default memo(function Dashboard({ connId }) {
         )
       case 'error_log':
         return <ErrorLog key={id} connId={connId} />
+      case 'index_health':
+        return <IndexHealth key={id} connId={connId} />
       default:
         return null
     }

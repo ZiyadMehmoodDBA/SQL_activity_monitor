@@ -29,6 +29,7 @@ export const WIDGET_REGISTRY = [
   { id: 'deadlocks',          label: 'Deadlock History',         group: 'section', category: 'Blocking',    defaultEnabled: true },
   { id: 'backup_health',       label: 'Backup Health',            group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'error_log',           label: 'SQL Error Log',            group: 'section', category: 'Queries',     defaultEnabled: true },
+  { id: 'index_health',        label: 'Index Health',             group: 'section', category: 'Maintenance', defaultEnabled: false },
 ]
 
 export const PANEL_CATEGORIES = ['Performance', 'Memory', 'SQL Agent', 'Sessions']
