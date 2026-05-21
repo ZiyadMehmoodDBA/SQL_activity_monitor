@@ -123,9 +123,10 @@ async function runWithConcurrency(items, limit, processor, shouldStop) {
 }
 
 async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('SCAN_TIMEOUT')), timeoutMs)
-  )
+  let timerId
+  const timeout = new Promise((_, reject) => {
+    timerId = setTimeout(() => reject(new Error('SCAN_TIMEOUT')), timeoutMs)
+  })
   try {
     return await Promise.race([scanFn(pool, db, mode), timeout])
   } catch (err) {
@@ -133,6 +134,8 @@ async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
       return { db, timedOut: true, totalIndexes: 0, disabledCount: 0, fragmented: [], missing: [], unused: [], duplicate: [] }
     }
     throw err
+  } finally {
+    clearTimeout(timerId)
   }
 }
 
