@@ -89,7 +89,7 @@ function computeHealthScore(dbResults) {
   return { score, severity, totalIndexes, fragmentedCount, missingCount, unusedCount, duplicateCount, disabledCount }
 }
 
-function paginateResults(rows, { page = 1, pageSize = 50, db, search } = {}) {
+function paginateResults(rows, { page = 1, pageSize = 50, db, search, rowType } = {}) {
   let filtered = rows
   if (db && db !== 'all') {
     filtered = filtered.filter(r => r.database_name === db)
@@ -100,6 +100,9 @@ function paginateResults(rows, { page = 1, pageSize = 50, db, search } = {}) {
       (r.table_name  || '').toLowerCase().includes(s) ||
       (r.index_name  || '').toLowerCase().includes(s)
     )
+  }
+  if (rowType) {
+    filtered = filtered.filter(r => r._rowType === rowType)
   }
   const total = filtered.length
   const start = (page - 1) * pageSize

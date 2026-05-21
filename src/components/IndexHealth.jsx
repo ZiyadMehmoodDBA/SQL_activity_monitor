@@ -49,7 +49,8 @@ export default function IndexHealth({ connId }) {
     setInventoryLoading(true)
     try {
       const serverTab = (tab === 'unused' || tab === 'duplicate') ? 'unusedAndDuplicate' : tab
-      const res = await fetchResults(sid, serverTab, { page: pg, pageSize: 50, ...filter })
+      const rowType = tab === 'unused' ? 'unused' : tab === 'duplicate' ? 'duplicate' : undefined
+      const res = await fetchResults(sid, serverTab, { page: pg, pageSize: 50, rowType, ...filter })
       if (res.expired) {
         setPhase('expired')
         sessionStorage.removeItem(sessionKey(connId))
@@ -59,9 +60,7 @@ export default function IndexHealth({ connId }) {
       if (res.summary)     setSummary(res.summary)
       if (res.metadata)    setMetadata(res.metadata)
       const rawData = res.fragmented || res.missing || res.unusedAndDuplicate
-      let rows = rawData?.rows ?? []
-      if (tab === 'unused')    rows = rows.filter(r => r._rowType === 'unused')
-      if (tab === 'duplicate') rows = rows.filter(r => r._rowType === 'duplicate')
+      const rows = rawData?.rows ?? []
       setInventoryData({ rows, total: rawData?.total ?? 0, page: rawData?.page ?? 1, pageSize: rawData?.pageSize ?? 50 })
     } catch {
       // non-fatal — keep existing data
@@ -70,8 +69,21 @@ export default function IndexHealth({ connId }) {
     }
   }, [connId, fetchResults])
 
-  // Session recovery on mount
+  // Reset state on connection switch, then check for recovery
   useEffect(() => {
+    setPhase('idle')
+    setScanId(null)
+    setProgress(null)
+    setSummary(null)
+    setMetadata(null)
+    setTimedOutDbs([])
+    setError(null)
+    setInventoryData(null)
+    setSelectedRow(null)
+    setActiveTab('fragmented')
+    setInventoryPage(1)
+    setInventoryFilter({ db: 'all', search: '' })
+
     const saved = sessionStorage.getItem(sessionKey(connId))
     if (!saved) return
     setScanId(saved)

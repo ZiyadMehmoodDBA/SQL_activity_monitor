@@ -33,6 +33,7 @@ export function useIndexHealthApi(connId) {
     const params = new URLSearchParams({ tab, page: opts.page ?? 1, pageSize: opts.pageSize || 50 })
     if (opts.db && opts.db !== 'all') params.set('db', opts.db)
     if (opts.search) params.set('search', opts.search)
+    if (opts.rowType) params.set('rowType', opts.rowType)
     const res = await fetch(`/api/connections/${connId}/index-health/scan/${scanId}/results?${params}`)
     if (res.status === 404) return { expired: true }
     if (!res.ok) {

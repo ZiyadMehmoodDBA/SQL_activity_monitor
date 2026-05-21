@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 
 const TABS = [
   { id: 'fragmented', label: 'Fragmented', countKey: 'fragmentedCount' },
@@ -48,6 +48,22 @@ export default function IndexInventory({
   page, onPageChange,
   summary, onRowClick,
 }) {
+  const [searchValue, setSearchValue] = useState(filter.search)
+  const searchTimerRef = useRef(null)
+
+  useEffect(() => {
+    setSearchValue(filter.search)
+  }, [filter.search])
+
+  function handleSearchChange(e) {
+    const value = e.target.value
+    setSearchValue(value)
+    clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      onFilterChange({ ...filter, search: value })
+    }, 350)
+  }
+
   const cols      = COLUMNS[activeTab] || COLUMNS.fragmented
   const rows      = data?.rows     ?? []
   const total     = data?.total    ?? 0
@@ -90,8 +106,8 @@ export default function IndexInventory({
       <div style={{ display: 'flex', gap: 8, padding: '8px 0', alignItems: 'center' }}>
         <input
           placeholder="Search table or index…"
-          value={filter.search}
-          onChange={e => onFilterChange({ ...filter, search: e.target.value })}
+          value={searchValue}
+          onChange={handleSearchChange}
           style={{
             padding: '4px 10px', borderRadius: 7, fontSize: 12,
             background: 'var(--card-bg)', color: 'var(--text-primary)',

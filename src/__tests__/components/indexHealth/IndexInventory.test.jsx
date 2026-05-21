@@ -1,6 +1,6 @@
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import IndexInventory from '../../../components/indexHealth/IndexInventory'
 
 const noop = () => {}
@@ -25,6 +25,8 @@ const baseProps = {
 }
 
 describe('IndexInventory', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
   it('renders four tab buttons', () => {
     render(<IndexInventory {...baseProps} />)
     expect(screen.getByRole('button', { name: /fragmented/i })).toBeInTheDocument()
@@ -83,6 +85,7 @@ describe('IndexInventory', () => {
     const onFilterChange = vi.fn()
     render(<IndexInventory {...baseProps} onFilterChange={onFilterChange} />)
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'Orders' } })
+    act(() => { vi.advanceTimersByTime(400) })
     expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ search: 'Orders' }))
   })
 

@@ -931,8 +931,8 @@ app.get('/api/connections/:id/index-health/scan/:scanId/results', (req, res) => 
     return res.status(400).json({ error: scan.error || 'Scan failed.', status: 'failed' })
   }
 
-  const { tab = 'fragmented', page = '1', pageSize = '50', db, search } = req.query
-  const pgOpts = { page: parseInt(page, 10) || 1, pageSize: parseInt(pageSize, 10) || 50, db, search }
+  const { tab = 'fragmented', page = '1', pageSize = '50', db, search, rowType } = req.query
+  const pgOpts = { page: parseInt(page, 10) || 1, pageSize: parseInt(pageSize, 10) || 50, db, search, rowType }
   const results = scan.results || { fragmented: [], missing: [], unused: [], duplicate: [], summary: {} }
 
   const unusedAndDuplicate = [

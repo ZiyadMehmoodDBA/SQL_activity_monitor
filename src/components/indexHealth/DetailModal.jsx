@@ -27,8 +27,8 @@ function FragmentedDetail({ row }) {
         ['Table',         row.table_name],
         ['Index',         row.index_name],
         ['Type',          row.index_type_desc],
-        ['Fragmentation', `${row.avg_fragmentation_in_percent?.toFixed(1)}%`],
-        ['Pages',         row.page_count?.toLocaleString()],
+        ['Fragmentation', row.avg_fragmentation_in_percent != null ? `${row.avg_fragmentation_in_percent.toFixed(1)}%` : '—'],
+        ['Pages',         row.page_count != null ? row.page_count.toLocaleString() : '—'],
         ['Action',        row.recommendation],
       ].map(([k, v]) => [
         <dt key={`k-${k}`} style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{k}</dt>,
