@@ -20,8 +20,9 @@ function buildScript(schema, table, equality, inequality, includes, supportsOnli
   const inclPart  = inclCols.length > 0 ? `\nINCLUDE (${inclCols.join(', ')})` : ''
   const onlinePart = supportsOnline ? '\nWITH (ONLINE = ON)' : ''
   const baseName  = keyCols[0] ? keyCols[0].replace(/[\[\]]/g, '') : 'idx'
+  const safeTable = table.replace(/[\[\]]/g, '')
   return (
-    `CREATE INDEX [IX_missing_${table}_${baseName}]\n` +
+    `CREATE INDEX [IX_missing_${safeTable}_${baseName}]\n` +
     `ON ${quoteName(schema)}.${quoteName(table)} (${keyCols.join(', ')})${inclPart}${onlinePart};`
   )
 }
