@@ -20,7 +20,7 @@ function includeSignature(cols) {
 
 function colDisplay(cols, includeOnly) {
   return cols
-    .filter(c => c.is_included_column === includeOnly)
+    .filter(c => Boolean(c.is_included_column) === includeOnly)
     .sort((a, b) => includeOnly ? a.column_name.localeCompare(b.column_name) : a.key_ordinal - b.key_ordinal)
     .map(c => c.column_name)
     .join(', ')
