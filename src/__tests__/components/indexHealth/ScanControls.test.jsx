@@ -52,4 +52,15 @@ describe('ScanControls', () => {
     render(<ScanControls mode="LIMITED" onModeChange={noop} phase="failed" onStartScan={noop} onCancelScan={noop} />)
     expect(screen.getByRole('button', { name: /run scan/i })).toBeInTheDocument()
   })
+
+  it('shows Cancel button when phase is pending', () => {
+    render(<ScanControls mode="LIMITED" onModeChange={noop} phase="pending" onStartScan={noop} onCancelScan={noop} />)
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeDisabled()
+  })
+
+  it('shows Run New Scan button when phase is completed_with_warnings', () => {
+    render(<ScanControls mode="LIMITED" onModeChange={noop} phase="completed_with_warnings" onStartScan={noop} onCancelScan={noop} />)
+    expect(screen.getByRole('button', { name: /run new scan/i })).toBeInTheDocument()
+  })
 })

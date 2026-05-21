@@ -31,6 +31,7 @@ export default function ScanControls({ mode, onModeChange, phase, onStartScan, o
 
       {isActive ? (
         <button
+          aria-label="Cancel scan"
           onClick={onCancelScan}
           style={{ padding: '5px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
             background: 'rgba(239,68,68,.12)', color: '#ef4444',
