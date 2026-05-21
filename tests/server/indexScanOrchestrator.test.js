@@ -6,6 +6,8 @@ import {
   calcProgressPct,
   computeHealthScore,
   paginateResults,
+  runWithConcurrency,
+  scanDatabaseWithTimeout,
 } from '../../server/indexScanOrchestrator.js'
 
 // Minimal mock pool factory
@@ -142,5 +144,55 @@ describe('paginateResults', () => {
     const r = paginateResults(rows, { page: 99, pageSize: 5 })
     expect(r.total).toBe(10)
     expect(r.rows.length).toBe(0)
+  })
+})
+
+describe('runWithConcurrency', () => {
+  it('runs all items and collects results', async () => {
+    const items = [1, 2, 3, 4, 5]
+    const results = await runWithConcurrency(items, 3, async (n) => n * 2, () => false)
+    expect(results.sort((a, b) => a - b)).toEqual([2, 4, 6, 8, 10])
+  })
+
+  it('respects concurrency limit', async () => {
+    let concurrent = 0
+    let maxConcurrent = 0
+    const items = Array.from({ length: 6 }, (_, i) => i)
+    await runWithConcurrency(items, 2, async () => {
+      concurrent++
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      await new Promise(r => setTimeout(r, 10))
+      concurrent--
+    }, () => false)
+    expect(maxConcurrent).toBeLessThanOrEqual(2)
+  })
+
+  it('stops early when shouldStop returns true', async () => {
+    const processed = []
+    const items = [1, 2, 3, 4, 5]
+    await runWithConcurrency(
+      items,
+      1,
+      async (n) => { processed.push(n) },
+      () => processed.length >= 1
+    )
+    expect(processed.length).toBeLessThanOrEqual(2)
+  })
+})
+
+describe('scanDatabaseWithTimeout', () => {
+  it('returns db result on success', async () => {
+    const mockScan = async () => ({ db: 'testdb', totalIndexes: 5, fragmented: [], missing: [], unused: [], duplicate: [], disabledCount: 0 })
+    const result = await scanDatabaseWithTimeout(null, 'testdb', 'LIMITED', 5000, mockScan)
+    expect(result.db).toBe('testdb')
+    expect(result.timedOut).toBeUndefined()
+  })
+
+  it('returns timedOut=true when scanner exceeds timeout', async () => {
+    const slowScan = async () => new Promise(r => setTimeout(r, 500))
+    const result = await scanDatabaseWithTimeout(null, 'testdb', 'LIMITED', 50, slowScan)
+    expect(result.timedOut).toBe(true)
+    expect(result.db).toBe('testdb')
+    expect(result.fragmented).toEqual([])
   })
 })

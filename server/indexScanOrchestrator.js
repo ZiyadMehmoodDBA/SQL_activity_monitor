@@ -104,6 +104,38 @@ function paginateResults(rows, { page = 1, pageSize = 50, db, search } = {}) {
   return { total, page, pageSize, rows: filtered.slice(start, start + pageSize) }
 }
 
+async function runWithConcurrency(items, limit, processor, shouldStop) {
+  const results = []
+  const queue = items.slice()
+
+  async function worker() {
+    while (queue.length > 0 && !shouldStop()) {
+      const item = queue.shift()
+      if (item === undefined) break
+      results.push(await processor(item))
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  )
+  return results
+}
+
+async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('SCAN_TIMEOUT')), timeoutMs)
+  )
+  try {
+    return await Promise.race([scanFn(pool, db, mode), timeout])
+  } catch (err) {
+    if (err.message === 'SCAN_TIMEOUT') {
+      return { db, timedOut: true, totalIndexes: 0, disabledCount: 0, fragmented: [], missing: [], unused: [], duplicate: [] }
+    }
+    throw err
+  }
+}
+
 module.exports = {
   fetchUserDatabases,
   fetchDbWeights,
@@ -111,4 +143,6 @@ module.exports = {
   calcProgressPct,
   computeHealthScore,
   paginateResults,
+  runWithConcurrency,
+  scanDatabaseWithTimeout,
 }
