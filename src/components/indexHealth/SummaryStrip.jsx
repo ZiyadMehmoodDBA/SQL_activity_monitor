@@ -15,7 +15,7 @@ function Pill({ label, count, alertColor }) {
   )
 }
 
-export default function SummaryStrip({ summary, timedOutDbs }) {
+export default function SummaryStrip({ summary, timedOutDbs = [] }) {
   if (!summary) return null
   const { fragmentedCount, missingCount, unusedCount, duplicateCount, disabledCount } = summary
 
