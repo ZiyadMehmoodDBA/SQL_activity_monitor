@@ -6,7 +6,7 @@ async function fetchUserDatabases(pool) {
   const r = await pool.request().query(`
     SELECT DB_NAME(database_id) AS db_name
     FROM sys.databases
-    WHERE database_id > 4 AND state = 0
+    WHERE database_id > 4 AND state = 0 AND is_read_only = 0
     ORDER BY name
   `)
   return r.recordset.map(row => row.db_name)
@@ -133,7 +133,22 @@ async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
     return await Promise.race([scanFn(pool, db, mode), timeout])
   } catch (err) {
     if (err.message === 'SCAN_TIMEOUT') {
-      return { db, timedOut: true, totalIndexes: 0, disabledCount: 0, fragmented: [], missing: [], unused: [], duplicate: [] }
+      const nowMs = Date.now()
+      return {
+        database:     db,
+        totalIndexes: 0,
+        disabledCount: 0,
+        fragmented:   [],
+        missing:      [],
+        unused:       [],
+        duplicate:    [],
+        metadata: {
+          durationMs:  timeoutMs,
+          startedAt:   new Date(nowMs - timeoutMs).toISOString(),
+          completedAt: new Date(nowMs).toISOString(),
+          timeout:     true,
+        },
+      }
     }
     throw err
   } finally {
@@ -206,7 +221,7 @@ async function runScan(pool, scanId, store, opts = {}) {
 
         const freshScan    = store.get(scanId)
         const completedDbs = [...(freshScan?.completedDbs || []), db]
-        const timedOutDbs  = dbResult.timedOut
+        const timedOutDbs  = dbResult.metadata?.timeout
           ? [...(freshScan?.timedOutDbs || []), db]
           : (freshScan?.timedOutDbs || [])
         const completedWeight = completedDbs.reduce((s, d) => s + (weights[d] || 1), 0)

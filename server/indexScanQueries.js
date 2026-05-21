@@ -2,13 +2,19 @@
 
 async function scanDatabase(pool, db, mode) {
   return {
-    db,
+    database:     db,
     totalIndexes: 0,
     disabledCount: 0,
-    fragmented: [],
-    missing: [],
-    unused: [],
-    duplicate: [],
+    fragmented:   [],
+    missing:      [],
+    unused:       [],
+    duplicate:    [],
+    metadata: {
+      durationMs:  0,
+      startedAt:   new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      timeout:     false,
+    },
   }
 }
 

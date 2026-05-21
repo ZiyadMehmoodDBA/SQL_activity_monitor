@@ -191,12 +191,13 @@ describe('scanDatabaseWithTimeout', () => {
     expect(result.timedOut).toBeUndefined()
   })
 
-  it('returns timedOut=true when scanner exceeds timeout', async () => {
+  it('returns metadata.timeout=true when scanner exceeds timeout', async () => {
     const slowScan = async () => new Promise(r => setTimeout(r, 500))
     const result = await scanDatabaseWithTimeout(null, 'testdb', 'LIMITED', 50, slowScan)
-    expect(result.timedOut).toBe(true)
-    expect(result.db).toBe('testdb')
+    expect(result.metadata.timeout).toBe(true)
+    expect(result.database).toBe('testdb')
     expect(result.fragmented).toEqual([])
+    expect(result.metadata.durationMs).toBe(50)
   })
 })
 
