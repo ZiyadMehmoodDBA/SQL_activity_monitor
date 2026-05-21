@@ -10,7 +10,6 @@ const summary = { fragmentedCount: 5, missingCount: 3, unusedCount: 8, duplicate
 const makeData = (rows = []) => ({ rows, total: rows.length, page: 1, pageSize: 50 })
 
 const fragRow = { database_name: 'db1', schema_name: 'dbo', table_name: 'Orders', index_name: 'IX_Orders_Date', avg_fragmentation_in_percent: 45, page_count: 5000, recommendation: 'REBUILD' }
-const missingRow = { database_name: 'db1', schema_name: 'dbo', table_name: 'Orders', equality_columns: 'OrderDate', inequality_columns: null, impact_score: 80, create_script: 'CREATE INDEX [IX_missing_Orders_OrderDate]\nON dbo.Orders ([OrderDate]);' }
 
 const baseProps = {
   activeTab: 'fragmented',

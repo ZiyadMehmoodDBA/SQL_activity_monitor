@@ -122,7 +122,7 @@ export default function IndexInventory({
             <tbody>
               {rows.map((row, i) => (
                 <tr
-                  key={i}
+                  key={`${row.database_name}.${row.schema_name}.${row.table_name}.${row.index_name ?? row.equality_columns ?? i}`}
                   onClick={() => onRowClick(row)}
                   style={{ cursor: 'pointer', borderTop: '1px solid var(--divider)' }}
                 >
