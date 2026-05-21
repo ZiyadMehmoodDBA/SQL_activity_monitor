@@ -139,6 +139,119 @@ async function scanDatabaseWithTimeout(pool, db, mode, timeoutMs, scanFn) {
   }
 }
 
+const { scanDatabase } = require('./indexScanQueries.js')
+
+const SCAN_TTL_MS = 2 * 60 * 60 * 1000
+const DEFAULT_TIMEOUT = parseInt(process.env.INDEX_TIMEOUT_PER_DB_MS) || 120_000
+const DEFAULT_CONCURRENCY = Math.min(parseInt(process.env.INDEX_SCAN_CONCURRENCY) || 3, 5)
+
+async function runScan(pool, scanId, store, opts = {}) {
+  const scan = store.get(scanId)
+  if (!scan || scan.status === 'cancelled') return
+
+  const timeoutPerDbMs = opts.timeoutPerDbMs || DEFAULT_TIMEOUT
+  const maxConcurrent  = opts.maxConcurrent  || DEFAULT_CONCURRENCY
+
+  store.update(scanId, { status: 'running' })
+
+  try {
+    const serverMeta = await fetchServerMeta(pool)
+
+    let databases = scan.databases
+    if (databases.length === 0 || (databases.length === 1 && databases[0] === 'ALL')) {
+      databases = await fetchUserDatabases(pool)
+      store.update(scanId, { databases, totalDbs: databases.length })
+    }
+
+    if (databases.length === 0) {
+      store.update(scanId, {
+        status: 'completed',
+        currentDb: null,
+        results: {
+          fragmented: [], missing: [], unused: [], duplicate: [],
+          summary: computeHealthScore([]),
+        },
+        metadata: {
+          scanMode: scan.scanMode, serverVersion: serverMeta.majorVersion,
+          serverRestartTime: serverMeta.serverRestartTime,
+          supportsOnlineRebuild: serverMeta.supportsOnlineRebuild,
+          scanDurationMs: 0, scanStartedAt: new Date(scan.createdAt).toISOString(),
+          totalDbs: 0, completedDbs: 0,
+        },
+        completedAt: Date.now(),
+        expiresAt: Date.now() + SCAN_TTL_MS,
+      })
+      return
+    }
+
+    const weights = await fetchDbWeights(pool, databases)
+    const totalWeight = databases.reduce((sum, db) => sum + (weights[db] || 1), 0)
+    store.update(scanId, { totalWeight })
+
+    const allDbResults = []
+
+    await runWithConcurrency(
+      databases,
+      maxConcurrent,
+      async (db) => {
+        const current = store.get(scanId)
+        if (!current || current.status === 'cancelled') return
+
+        store.update(scanId, { currentDb: db })
+
+        const dbResult = await scanDatabaseWithTimeout(
+          pool, db, scan.scanMode, timeoutPerDbMs, scanDatabase
+        )
+        allDbResults.push(dbResult)
+
+        const freshScan    = store.get(scanId)
+        const completedDbs = [...(freshScan?.completedDbs || []), db]
+        const timedOutDbs  = dbResult.timedOut
+          ? [...(freshScan?.timedOutDbs || []), db]
+          : (freshScan?.timedOutDbs || [])
+        const completedWeight = completedDbs.reduce((s, d) => s + (weights[d] || 1), 0)
+
+        store.update(scanId, { completedDbs, timedOutDbs, completedWeight })
+      },
+      () => (store.get(scanId)?.status === 'cancelled')
+    )
+
+    const finalScan = store.get(scanId)
+    if (finalScan?.status === 'cancelled') return
+
+    const summary = computeHealthScore(allDbResults)
+    const scanDurationMs = Date.now() - scan.createdAt
+    const completedAt = Date.now()
+    const timedOutDbs = finalScan?.timedOutDbs || []
+
+    store.update(scanId, {
+      status: timedOutDbs.length > 0 ? 'completed_with_warnings' : 'completed',
+      currentDb: null,
+      results: {
+        fragmented: allDbResults.flatMap(r => r.fragmented),
+        missing:    allDbResults.flatMap(r => r.missing),
+        unused:     allDbResults.flatMap(r => r.unused),
+        duplicate:  allDbResults.flatMap(r => r.duplicate),
+        summary,
+      },
+      metadata: {
+        scanMode:              scan.scanMode,
+        serverVersion:         serverMeta.majorVersion,
+        serverRestartTime:     serverMeta.serverRestartTime,
+        supportsOnlineRebuild: serverMeta.supportsOnlineRebuild,
+        scanDurationMs,
+        scanStartedAt:         new Date(scan.createdAt).toISOString(),
+        totalDbs:              databases.length,
+        completedDbs:          finalScan?.completedDbs?.length || 0,
+      },
+      completedAt,
+      expiresAt: completedAt + SCAN_TTL_MS,
+    })
+  } catch (err) {
+    store.update(scanId, { status: 'failed', error: err.message, completedAt: Date.now() })
+  }
+}
+
 module.exports = {
   fetchUserDatabases,
   fetchDbWeights,
@@ -148,4 +261,6 @@ module.exports = {
   paginateResults,
   runWithConcurrency,
   scanDatabaseWithTimeout,
+  runScan,
+  SCAN_TTL_MS,
 }

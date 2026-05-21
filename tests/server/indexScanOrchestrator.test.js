@@ -8,7 +8,9 @@ import {
   paginateResults,
   runWithConcurrency,
   scanDatabaseWithTimeout,
+  runScan,
 } from '../../server/indexScanOrchestrator.js'
+import { MemoryScanStore } from '../../server/indexScanStore.js'
 
 // Minimal mock pool factory
 function makePool(recordsets) {
@@ -194,5 +196,82 @@ describe('scanDatabaseWithTimeout', () => {
     expect(result.timedOut).toBe(true)
     expect(result.db).toBe('testdb')
     expect(result.fragmented).toEqual([])
+  })
+})
+
+describe('runScan', () => {
+  const SCAN_TTL_MS = 2 * 60 * 60 * 1000
+
+  function makePool() {
+    return {
+      request: () => ({
+        query: async (sql) => {
+          if (sql.includes('sys.databases')) return { recordset: [{ db_name: 'db1' }, { db_name: 'db2' }] }
+          if (sql.includes('sys.master_files') && sql.includes('SUM')) return { recordset: [{ db_name: 'db1', size_bytes: 1000 }, { db_name: 'db2', size_bytes: 2000 }] }
+          if (sql.includes('SERVERPROPERTY')) return { recordset: [{ major_version: 15, edition: 'Developer Edition', sqlserver_start_time: new Date() }] }
+          return { recordset: [] }
+        },
+      }),
+    }
+  }
+
+  it('transitions to completed and sets results', async () => {
+    const store = new MemoryScanStore()
+    const { randomUUID } = await import('node:crypto')
+    const scanId = randomUUID()
+    store.create(scanId, 'conn1', 'LIMITED', ['db1', 'db2'])
+
+    await runScan(makePool(), scanId, store)
+
+    const scan = store.get(scanId)
+    expect(scan.status).toBe('completed')
+    expect(scan.results).not.toBeNull()
+    expect(scan.results.summary.score).toBe(100)
+    expect(scan.metadata).not.toBeNull()
+    expect(scan.metadata.serverVersion).toBe(15)
+    expect(scan.completedDbs).toHaveLength(2)
+    expect(scan.expiresAt).toBeGreaterThan(Date.now())
+  })
+
+  it('sets completed_with_warnings when databases timed out', async () => {
+    const store = new MemoryScanStore()
+    const { randomUUID } = await import('node:crypto')
+    const scanId = randomUUID()
+    store.create(scanId, 'conn1', 'LIMITED', ['db1'])
+
+    await runScan(makePool(), scanId, store, { timeoutPerDbMs: 1 })
+
+    const scan = store.get(scanId)
+    expect(['completed', 'completed_with_warnings']).toContain(scan.status)
+  })
+
+  it('stays cancelled when cancelled before run completes', async () => {
+    const store = new MemoryScanStore()
+    const { randomUUID } = await import('node:crypto')
+    const scanId = randomUUID()
+    store.create(scanId, 'conn1', 'LIMITED', ['db1', 'db2'])
+
+    store.cancel(scanId)
+    await runScan(makePool(), scanId, store)
+
+    expect(store.get(scanId).status).toBe('cancelled')
+  })
+
+  it('sets status to failed on pool error', async () => {
+    const store = new MemoryScanStore()
+    const { randomUUID } = await import('node:crypto')
+    const scanId = randomUUID()
+    store.create(scanId, 'conn1', 'LIMITED', ['db1'])
+
+    const brokenPool = {
+      request: () => ({
+        query: async () => { throw new Error('Connection lost') },
+      }),
+    }
+
+    await runScan(brokenPool, scanId, store)
+    const scan = store.get(scanId)
+    expect(scan.status).toBe('failed')
+    expect(scan.error).toContain('Connection lost')
   })
 })
