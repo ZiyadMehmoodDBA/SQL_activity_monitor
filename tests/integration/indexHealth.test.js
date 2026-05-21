@@ -16,7 +16,7 @@ beforeAll(async () => {
     server:   process.env.TEST_SQL_SERVER,
     database: process.env.TEST_SQL_DB,
     options:  { encrypt: false, trustServerCertificate: true, trustedConnection: true },
-  })
+  }).catch(err => { throw new Error(`Integration test DB connection failed: ${err.message}`) })
 }, 30_000)
 
 afterAll(async () => {
