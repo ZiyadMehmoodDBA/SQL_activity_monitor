@@ -12,6 +12,18 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+// ── sessionStorage mock ────────────────────────────────────────────────────────
+const sessionStorageMock = (() => {
+  let store = {}
+  return {
+    getItem: (k) => store[k] ?? null,
+    setItem: (k, v) => { store[k] = String(v) },
+    removeItem: (k) => { delete store[k] },
+    clear: () => { store = {} },
+  }
+})()
+Object.defineProperty(window, 'sessionStorage', { value: sessionStorageMock })
+
 // ── socket.io-client mock ──────────────────────────────────────────────────────
 vi.mock('socket.io-client', () => ({
   default: vi.fn(() => ({
@@ -54,8 +66,17 @@ global.fetch = vi.fn(() =>
   Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
 )
 
+// ── jest shim for @testing-library + Vitest fake timers ────────────────────────
+// @testing-library/dom's waitFor only advances fake timers when a global `jest`
+// object with `advanceTimersByTime` is present. Vitest does not provide one, so
+// without this shim waitFor() hangs whenever a test calls vi.useFakeTimers().
+globalThis.jest = {
+  advanceTimersByTime: (ms) => vi.advanceTimersByTime(ms),
+}
+
 // Reset mocks between tests
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  sessionStorage.clear()
 })

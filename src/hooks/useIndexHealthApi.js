@@ -22,7 +22,9 @@ export function useIndexHealthApi(connId) {
     const res = await fetch(`/api/connections/${connId}/index-health/scan/${scanId}/progress`)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || `Progress poll failed: ${res.status}`)
+      const err = new Error(data.error || `Progress poll failed: ${res.status}`)
+      err.status = res.status
+      throw err
     }
     return await res.json()
   }, [connId])
