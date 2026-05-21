@@ -216,7 +216,7 @@ async function runScan(pool, scanId, store, opts = {}) {
 
         const dbResult = await scanDatabaseWithTimeout(
           pool, db, scan.scanMode, timeoutPerDbMs,
-          (p, d, m) => scanDatabase(p, d, m, serverMeta)
+          (p, d, scanMode) => scanDatabase(p, d, scanMode, serverMeta)
         )
         allDbResults.push(dbResult)
 

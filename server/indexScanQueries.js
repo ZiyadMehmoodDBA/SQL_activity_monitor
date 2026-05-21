@@ -33,10 +33,10 @@ async function scanDatabase(pool, db, mode, serverMeta = {}) {
     getTotalIndexCount(pool, db),
   ])
 
-  const dupSet = new Set(duplicate.map(d => `${d.table_name}|${d.index_name}`))
+  const dupSet = new Set(duplicate.map(d => `${d.schema_name}|${d.table_name}|${d.index_name}`))
   const unusedTagged = unused.map(u => ({
     ...u,
-    is_duplicate: dupSet.has(`${u.table_name}|${u.index_name}`),
+    is_duplicate: dupSet.has(`${u.schema_name}|${u.table_name}|${u.index_name}`),
   }))
 
   return {
