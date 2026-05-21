@@ -56,9 +56,9 @@ describe('useIndexHealthApi', () => {
     })
 
     it('throws on non-ok status', async () => {
-      mockFetch(404, { error: 'not found' })
+      mockFetch(404, {})
       const { result } = renderHook(() => useIndexHealthApi(CONN))
-      await expect(result.current.pollProgress(SCAN_ID)).rejects.toThrow()
+      await expect(result.current.pollProgress(SCAN_ID)).rejects.toThrow('Progress poll failed: 404')
     })
   })
 
@@ -100,6 +100,12 @@ describe('useIndexHealthApi', () => {
         `/api/connections/${CONN}/index-health/scan/${SCAN_ID}`,
         expect.objectContaining({ method: 'DELETE' })
       )
+    })
+
+    it('throws on non-ok status', async () => {
+      mockFetch(400, { error: 'Cannot cancel: scan is not in progress.' })
+      const { result } = renderHook(() => useIndexHealthApi(CONN))
+      await expect(result.current.cancelScan(SCAN_ID)).rejects.toThrow('Cancel failed: 400')
     })
   })
 })
