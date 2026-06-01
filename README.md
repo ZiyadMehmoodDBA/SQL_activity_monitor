@@ -6,6 +6,8 @@ A live, web-based SQL Server Activity Monitor — built to replicate and extend 
 ![Tests](https://img.shields.io/badge/tests-79%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+![Dashboard](docs/assets/dashboard.png)
+
 ---
 
 ## Features

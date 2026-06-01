@@ -6,5 +6,6 @@ dist/
 *.png
 *.jpg
 *.jpeg
+!docs/assets/*.png
 data/
 
