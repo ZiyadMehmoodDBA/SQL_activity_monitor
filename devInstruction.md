@@ -1,0 +1,77 @@
+# DOs For AI
+
+- Use sanitized and masked data only
+- Use fake or synthetic datasets for testing
+- Access read only environments when possible
+- Follow least privilege access
+- Log AI related activities
+- Review all AI generated code manually
+- Validate AI generated SQL before execution
+- Use isolated development environments
+- Use RBAC for AI tool access
+- Encrypt sensitive communications
+- Use approved enterprise AI tools
+- Remove PII before sharing prompts
+- Remove PHI before sharing prompts
+- Use audit trails for AI usage
+- Review dependencies suggested by AI
+- Validate infrastructure changes manually
+- Use version control for AI generated changes
+- Use private AI deployments for sensitive projects
+- Apply security scans on generated code
+- Use approval workflows before production deployment
+- Rotate credentials after accidental exposure
+- Follow HIPAA/SOC2/GDPR requirements
+- Restrict AI access to non production systems
+- Validate performance recommendations before applying
+- Monitor AI generated scripts in testing first
+- Keep AI usage documented
+- Limit shared context to minimum required data
+- Review AI generated architecture decisions
+- Use secure prompt handling practices
+- Train teams on AI privacy and security policies
+
+---
+
+# DON'Ts For AI
+
+- Do not share passwords
+- Do not share API keys
+- Do not share JWT secrets
+- Do not share SSH keys
+- Do not share VPN credentials
+- Do not expose production databases
+- Do not upload production backups
+- Do not share patient records
+- Do not share insurance claims
+- Do not share financial account data
+- Do not expose customer PII
+- Do not expose PHI/EHR/EMR data
+- Do not allow AI direct production access
+- Do not allow autonomous deployments
+- Do not execute AI generated SQL blindly
+- Do not allow AI to modify IAM permissions automatically
+- Do not expose internal network diagrams
+- Do not expose security architecture details
+- Do not share encryption implementations
+- Do not expose proprietary algorithms
+- Do not bypass human reviews
+- Do not trust AI generated code without testing
+- Do not allow AI to control infrastructure
+- Do not use AI outputs as final legal advice
+- Do not use AI outputs as final security approval
+- Do not paste confidential contracts into public AI
+- Do not expose cloud secrets or vault data
+- Do not run destructive SQL from AI generated scripts
+- Do not connect AI directly to production SQL Server
+- Do not expose Kubernetes secrets
+- Do not expose Terraform state files
+- Do not store sensitive prompts unencrypted
+- Do not ignore audit logging
+- Do not skip compliance validation
+- Do not expose customer exports to public AI
+- Do not allow unrestricted AI tool access
+- Do not use public AI for regulated healthcare data
+- Do not trust AI generated dependency versions blindly
+- Do not skip penetration testing after AI assisted changes
+- Do not let AI replace security governance

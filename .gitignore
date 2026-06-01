@@ -6,4 +6,5 @@ dist/
 *.png
 *.jpg
 *.jpeg
+data/
 
