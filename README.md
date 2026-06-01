@@ -181,7 +181,14 @@ Trend line: slope in %/hr + projected time until full, calculated from the last 
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full documentation.
+See the docs below for full documentation.
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Full technical architecture — state shape, rendering strategy, API contracts, performance guarantees |
+| [context.md](context.md) | App context, requirements, benefits, frontend + backend summary with per-element statements |
+| [design.md](design.md) | Visual language — color tokens, themes, layout, component patterns, animation spec |
+| [SKILLS.md](SKILLS.md) | Skills and competencies demonstrated — React, Node, SQL Server DMVs, testing, security design |
 
 ### Data Flow
 
