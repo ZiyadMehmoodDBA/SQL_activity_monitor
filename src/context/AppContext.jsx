@@ -13,6 +13,7 @@ function pushHist(arr, val) {
 const ALL_SECTIONS_COLLAPSED = new Set([
   'proc', 'waits', 'fileio', 'recent', 'active',
   'blocking', 'deadlocks', 'dbsizes', 'dbsizetrend',
+  'cpu', 'tempdb',
 ])
 
 function makeConn(conn) {
@@ -41,13 +42,16 @@ function makeConn(conn) {
     expandedSessionGroups: new Set(),
     collapsedSections,
     sortState: {
-      proc:      { col: 'cpu_time',       dir: 'desc' },
-      waits:     { col: 'wait_time_ms',   dir: 'desc' },
-      fileio:    { col: 'io_stall',       dir: 'desc' },
-      recent:    { col: 'avg_elapsed_ms', dir: 'desc' },
-      active:    { col: 'elapsed_sec',    dir: 'desc' },
-      blocking:  { col: 'wait_time',      dir: 'desc' },
-      deadlocks: { col: 'deadlock_time',  dir: 'desc' },
+      proc:            { col: 'cpu_time',              dir: 'desc' },
+      waits:           { col: 'wait_time_ms',          dir: 'desc' },
+      fileio:          { col: 'io_stall',              dir: 'desc' },
+      recent:          { col: 'avg_elapsed_ms',        dir: 'desc' },
+      active:          { col: 'elapsed_sec',           dir: 'desc' },
+      blocking:        { col: 'wait_time',             dir: 'desc' },
+      deadlocks:       { col: 'deadlock_time',         dir: 'desc' },
+      cpu:             { col: 'total_worker_time',     dir: 'desc' },
+      tempdb:          { col: 'total_pages',           dir: 'desc' },
+      missing_indexes: { col: 'estimated_improvement', dir: 'desc' },
     },
   }
 }

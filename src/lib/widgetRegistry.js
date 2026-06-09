@@ -30,6 +30,9 @@ export const WIDGET_REGISTRY = [
   { id: 'backup_health',       label: 'Backup Health',            group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'error_log',           label: 'SQL Error Log',            group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'index_health',        label: 'Index Health',             group: 'section', category: 'Maintenance', defaultEnabled: false },
+  { id: 'cpu_intensive',       label: 'CPU Intensive Queries',    group: 'section', category: 'Queries',     defaultEnabled: true  },
+  { id: 'missing_indexes',     label: 'Missing Indexes',          group: 'section', category: 'Maintenance', defaultEnabled: true  },
+  { id: 'tempdb_usage',        label: 'TempDB Usage',             group: 'section', category: 'Database',    defaultEnabled: true  },
 ]
 
 export const PANEL_CATEGORIES = ['Performance', 'Memory', 'SQL Agent', 'Sessions']
