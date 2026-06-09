@@ -223,7 +223,7 @@ export default function MissingIndexes({ connId, topN, dbFilter }) {
                           ))}
                           <td className="px-3 py-2">
                             <button
-                              onClick={() => navigator.clipboard.writeText(row.create_index_sql)}
+                              onClick={() => navigator.clipboard.writeText(row.create_index_sql).catch(() => {})}
                               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors"
                               style={{ background: 'var(--divider)', color: 'var(--text-secondary)', border: '1px solid var(--input-border)', whiteSpace: 'nowrap' }}
                               onMouseEnter={e => e.currentTarget.style.background = 'var(--section-hover)'}
