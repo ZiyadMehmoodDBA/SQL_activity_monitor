@@ -16,6 +16,7 @@ export const TABLE_COLS = {
   ],
   waits: [
     { key: 'wait_type',            label: 'Wait Type',       type: 'str' },
+    { key: 'wait_pct',             label: '% of Total',      type: 'dec' },
     { key: 'waiting_tasks_count',  label: 'Count',           type: 'num' },
     { key: 'wait_time_ms',         label: 'Total Wait (ms)', type: 'num' },
     { key: 'max_wait_time_ms',     label: 'Max Wait (ms)',   type: 'num' },

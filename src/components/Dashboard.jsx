@@ -299,6 +299,10 @@ export default memo(function Dashboard({ connId }) {
   const [topN,       setTopN]       = useState(10)
   const [dbFilter,   setDbFilter]   = useState('')
   const [killResult, setKillResult] = useState(null)
+  useEffect(() => {
+    setTopN(10)
+    setDbFilter('')
+  }, [connId])
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
     clearTimeout(killResultTimer.current)
