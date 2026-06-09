@@ -475,7 +475,7 @@ export default memo(function Dashboard({ connId }) {
             {...(cfg.supportsClipboard ? {
               extraCol: true,
               renderExtraCell: row => (
-                <button className="copy-btn" onClick={() => navigator.clipboard.writeText(row.query_text || '')}>Copy</button>
+                <button className="copy-btn" onClick={() => navigator.clipboard.writeText(row.query_text || '').catch(() => {})}>Copy</button>
               ),
             } : {})}
           />
