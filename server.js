@@ -92,7 +92,7 @@ const connections = new Map();
 
 // ─── Missing index cache (per connection, advisory data) ──────────────────────
 const missingIndexCache = new Map() // Map<connId, { rows, ts, expiresAt }>
-const MISSING_INDEX_CACHE_MS = parseInt(process.env.MISSING_INDEX_CACHE_MIN || '10') * 60 * 1000
+const MISSING_INDEX_CACHE_MS = Math.max(1, parseInt(process.env.MISSING_INDEX_CACHE_MIN || '10') || 10) * 60 * 1000
 
 const scanStore = new MemoryScanStore()
 
@@ -317,7 +317,7 @@ const Q = {
 
   missingIndexes: `
     SELECT TOP 50
-      DB_NAME(d.database_id)                        AS database_name,
+      ISNULL(DB_NAME(d.database_id),'')             AS database_name,
       OBJECT_NAME(d.object_id, d.database_id)       AS table_name,
       d.equality_columns,
       d.inequality_columns,
@@ -332,7 +332,7 @@ const Q = {
           'IX_' + ISNULL(OBJECT_NAME(d.object_id, d.database_id),'obj') + '_' + CAST(d.index_handle AS VARCHAR(10)),
           128
         ) +
-        '] ON ' + d.statement + ' (' +
+        '] ON ' + ISNULL(d.statement,'[unknown]') + ' (' +
         ISNULL(d.equality_columns, '') +
         CASE
           WHEN d.inequality_columns IS NOT NULL AND d.equality_columns IS NOT NULL THEN ','
