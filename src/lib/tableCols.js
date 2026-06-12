@@ -56,12 +56,18 @@ export const TABLE_COLS = {
     { key: 'query_text',       label: 'Query',               type: 'query', maxWidth: 500, truncate: true, tooltip: true },
   ],
   cpu: [
-    { key: 'database_name',    label: 'Database',        type: 'str'                                        },
-    { key: 'execution_count',  label: 'Executions',      type: 'num'                                        },
-    { key: 'total_worker_time',label: 'Total CPU (ms)',  type: 'dec'                                        },
-    { key: 'avg_cpu_ms',       label: 'Avg CPU (ms)',    type: 'dec'                                        },
-    { key: 'last_executed',    label: 'Last Executed',   type: 'str'                                        },
-    { key: 'query_text',       label: 'Query',           type: 'query', maxWidth: 500, truncate: true, tooltip: true },
+    { key: 'database_name',    label: 'Database',          type: 'str' },
+    { key: 'execution_count',  label: 'Executions',        type: 'num' },
+    { key: 'total_worker_time',label: 'Total CPU (ms)',    type: 'dec' },
+    { key: 'avg_cpu_ms',       label: 'Avg CPU (ms)',      type: 'dec' },
+    { key: 'last_executed',    label: 'Last Executed',     type: 'str' },
+    { key: 'query_text',       label: 'Query Information', type: 'query', maxWidth: 500, truncate: true, tooltip: true,
+      titleFn: row => row.query_text_full || row.query_text || '' },
+    { key: 'parent_object',    label: 'Parent Object',     type: 'trunc',
+      titleFn: row => row.object_id
+        ? `Schema: ${row.schema_name || ''}\nObject Id: ${row.object_id}\nDatabase: ${row.database_name || ''}`
+        : '' },
+    { key: 'object_type',      label: 'Object Type',       type: 'str' },
   ],
   tempdb: [
     { key: 'session_id',       label: 'Session',      type: 'num' },
