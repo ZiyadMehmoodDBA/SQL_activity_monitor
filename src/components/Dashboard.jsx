@@ -304,6 +304,7 @@ export default memo(function Dashboard({ connId }) {
   useEffect(() => {
     setTopN(10)
     setDbFilter('')
+    setQueryView(null)
   }, [connId])
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
