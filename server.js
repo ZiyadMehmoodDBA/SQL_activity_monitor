@@ -295,9 +295,35 @@ const Q = {
       LEFT(ISNULL(SUBSTRING(st.text,
         (qs.statement_start_offset/2)+1,
         ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
-          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),300) AS query_text
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),150) AS query_text,
+      LEFT(ISNULL(SUBSTRING(st.text,
+        (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),4000) AS query_text_full,
+      CASE
+        WHEN st.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(st.objectid, st.dbid), 'Unknown')
+      END                                                                      AS parent_object,
+      ISNULL(OBJECT_SCHEMA_NAME(st.objectid, st.dbid),'')                      AS schema_name,
+      st.objectid                                                              AS object_id,
+      CASE
+        WHEN st.objectid IS NULL OR OBJECT_NAME(st.objectid, st.dbid) IS NULL THEN 'Ad Hoc Query'
+        WHEN ot.type_desc LIKE '%STORED_PROCEDURE' THEN 'Stored Procedure'
+        WHEN ot.type_desc LIKE '%TRIGGER'          THEN 'Trigger'
+        WHEN ot.type_desc LIKE '%FUNCTION'         THEN 'Function'
+        ELSE 'Unknown'
+      END                                                                      AS object_type
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    OUTER APPLY (
+      SELECT TOP 1 t.type_desc FROM (
+        SELECT type_desc FROM sys.dm_exec_procedure_stats WHERE object_id = st.objectid AND database_id = st.dbid
+        UNION ALL
+        SELECT type_desc FROM sys.dm_exec_trigger_stats   WHERE object_id = st.objectid AND database_id = st.dbid
+        UNION ALL
+        SELECT type_desc FROM sys.dm_exec_function_stats  WHERE object_id = st.objectid AND database_id = st.dbid
+      ) t
+    ) ot
     WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
     ORDER BY qs.total_worker_time DESC`,
 
