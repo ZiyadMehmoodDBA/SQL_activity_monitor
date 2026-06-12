@@ -327,6 +327,27 @@ const Q = {
     WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
     ORDER BY qs.total_worker_time DESC`,
 
+  ioExpensive: `
+    SELECT TOP 50
+      ISNULL(DB_NAME(st.dbid),'')                                              AS database_name,
+      qs.execution_count,
+      qs.total_logical_reads,
+      qs.total_physical_reads,
+      CAST(qs.total_logical_reads / NULLIF(qs.execution_count,0) AS FLOAT)     AS avg_logical_reads,
+      CONVERT(VARCHAR(23),qs.last_execution_time,121)                          AS last_executed,
+      LEFT(ISNULL(SUBSTRING(st.text,
+        (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),150) AS query_text,
+      CASE
+        WHEN st.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(st.objectid, st.dbid), 'Unknown')
+      END                                                                      AS parent_object
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
+    ORDER BY qs.total_logical_reads DESC`,
+
   tempdbUsage: `
     SELECT TOP 50
       s.session_id,
@@ -417,7 +438,11 @@ const Q = {
       LEFT(ISNULL(SUBSTRING(t.text,
         (ISNULL(bc.statement_start_offset,0)/2)+1,
         ((CASE ISNULL(bc.statement_end_offset,-1) WHEN -1 THEN DATALENGTH(t.text)
-          ELSE bc.statement_end_offset END - ISNULL(bc.statement_start_offset,0))/2)+1),''),300) AS blocked_query
+          ELSE bc.statement_end_offset END - ISNULL(bc.statement_start_offset,0))/2)+1),''),300) AS blocked_query,
+      CASE
+        WHEN t.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(t.objectid, t.dbid), 'Unknown')
+      END                                                                  AS parent_object
     FROM sys.dm_exec_requests bc
     JOIN  sys.dm_exec_sessions bc_s ON bc.session_id          = bc_s.session_id
     LEFT JOIN sys.dm_exec_sessions bs  ON bc.blocking_session_id = bs.session_id
@@ -585,7 +610,7 @@ const Q = {
 
 async function collectMetrics(pool, prevIO, prevNet) {
   const req = () => pool.request();
-  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR, backupHealthR, cpuExpensiveR, tempdbR] = await Promise.all([
+  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR, backupHealthR, cpuExpensiveR, tempdbR, ioExpensiveR] = await Promise.all([
     req().query(Q.cpu),
     req().query(Q.overview),
     req().query(Q.ioSnapshot),
@@ -604,6 +629,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     req().query(Q.backupHealth).catch(err => { console.error('[backupHealth]', err.message); return { recordset: [] }; }),
     req().query(Q.cpuExpensive).catch(err => { console.error('[cpuExpensive]', err.message); return { recordset: [] }; }),
     req().query(Q.tempdbUsage).catch(err => { console.error('[tempdbUsage]', err.message); return { recordset: [] }; }),
+    req().query(Q.ioExpensive).catch(err => { console.error('[ioExpensive]', err.message); return { recordset: [] }; }),
   ]);
 
   // ── Supplement diskDrives with OS drives that have no SQL files ───────────────
@@ -721,6 +747,7 @@ async function collectMetrics(pool, prevIO, prevNet) {
     backupHealth:    backupHealthR.recordset,
     cpuExpensive:    cpuExpensiveR.recordset,
     tempdbUsage:     tempdbR.recordset,
+    ioExpensive:     ioExpensiveR.recordset,
     _prevIO:  { bytes: currBytes,    time: now },
     _prevNet: { bytes: currNetBytes, time: now },
   };
