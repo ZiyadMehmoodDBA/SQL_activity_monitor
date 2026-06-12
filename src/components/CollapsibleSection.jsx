@@ -11,7 +11,7 @@ export default function CollapsibleSection({ connId, sectionId, title, children,
   }
 
   return (
-    <div className="mc overflow-hidden">
+    <div className="mc overflow-hidden" id={`section-anchor-${sectionId}`}>
       <button
         className="section-toggle w-full flex items-center justify-between px-5 py-3 text-left"
         onClick={toggle}

@@ -10,6 +10,7 @@ import { WIDGET_REGISTRY } from '../lib/widgetRegistry'
 import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
 import JobsPanel from './JobsPanel'
+import QueryOptimizationSection from './QueryOptimizationSection'
 import SessionsPanel from './SessionsPanel'
 import MemoryHealth from './MemoryHealth'
 import CollapsibleSection from './CollapsibleSection'
@@ -345,6 +346,7 @@ export default memo(function Dashboard({ connId }) {
   )
 
   const showJobs     = on('jobs_panel')
+  const showQueryOpt = on('query_optimization')
   const showSessions = on('sessions_panel')
 
   // ── Sort helpers ─────────────────────────────────────────────────────────
@@ -722,6 +724,15 @@ export default memo(function Dashboard({ connId }) {
           </div>
         ))}
       </div>
+
+      {/* Query Optimization widgets */}
+      {showQueryOpt && (
+        <QueryOptimizationSection
+          blocking={m?.blocking || []}
+          cpuRows={m?.cpuExpensive || []}
+          ioRows={m?.ioExpensive || []}
+        />
+      )}
 
       {/* Row 3: Jobs + Sessions */}
       {(showJobs || showSessions) && (
