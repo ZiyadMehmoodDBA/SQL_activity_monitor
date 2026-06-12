@@ -467,6 +467,23 @@ export default memo(function Dashboard({ connId }) {
       return (
         <CollapsibleSection key={id} connId={connId} sectionId={cfg.sectionId} title={cfg.title}
           badge={<SectionBadge count={m?.[cfg.metricKey]?.length || 0} alertWhen={cfg.alertWhen} />}>
+          {id === 'cpu_intensive' && (
+            <div className="flex items-center gap-3 px-4 py-2 text-xs text-gray-500">
+              <label className="flex items-center gap-1">
+                Top:
+                <select value={topN} onChange={e => setTopN(Number(e.target.value))} className="ml-1 border rounded px-1 py-0.5 text-xs">
+                  {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                Database:
+                <select value={dbFilter} onChange={e => setDbFilter(e.target.value)} className="ml-1 border rounded px-1 py-0.5 text-xs">
+                  <option value="">All</option>
+                  {dbNames.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
           <VirtualTable rows={sortedByKey[cfg.sortKey]} columns={TABLE_COLS[cfg.sortKey]}
             height={cfg.height}
             sortCol={conn.sortState[cfg.sortKey].col} sortDir={conn.sortState[cfg.sortKey].dir}
@@ -712,21 +729,6 @@ export default memo(function Dashboard({ connId }) {
       {/* Collapsible sections — ordered and filtered by widgetLayout */}
       {orderedSections.length > 0 && (
         <div className="space-y-6">
-          <div className="flex items-center gap-3 px-4 py-2 text-xs text-gray-500">
-            <label className="flex items-center gap-1">
-              Top:
-              <select value={topN} onChange={e => setTopN(Number(e.target.value))} className="ml-1 border rounded px-1 py-0.5 text-xs">
-                {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-            <label className="flex items-center gap-1">
-              Database:
-              <select value={dbFilter} onChange={e => setDbFilter(e.target.value)} className="ml-1 border rounded px-1 py-0.5 text-xs">
-                <option value="">All</option>
-                {dbNames.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </label>
-          </div>
           {orderedSections.map(id => renderSection(id))}
         </div>
       )}
