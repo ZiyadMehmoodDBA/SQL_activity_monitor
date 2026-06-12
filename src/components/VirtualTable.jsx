@@ -1,7 +1,7 @@
 import React, { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-function fmtCell(val, type) {
+function fmtCell(val, type, titleOverride) {
   if (val === null || val === undefined) {
     return <span style={{ color: 'var(--text-muted)', opacity: .5 }}>—</span>
   }
@@ -32,7 +32,7 @@ function fmtCell(val, type) {
       const short = text.length > 60 ? text.slice(0, 60) + '…' : text
       return (
         <span
-          title={text}
+          title={titleOverride ?? text}
           style={{
             display: 'block',
             maxWidth: 280,
@@ -52,15 +52,17 @@ function fmtCell(val, type) {
       const s = String(val)
       return (
         <span
-          title={s}
+          title={titleOverride ?? s}
           style={{ display: 'block', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         >
           {s || '—'}
         </span>
       )
     }
-    default:
-      return String(val) || <span style={{ color: 'var(--text-muted)', opacity: .4 }}>—</span>
+    default: {
+      const s = String(val) || <span style={{ color: 'var(--text-muted)', opacity: .4 }}>—</span>
+      return titleOverride ? <span title={titleOverride}>{s}</span> : s
+    }
   }
 }
 
@@ -168,7 +170,7 @@ export default function VirtualTable({
                     >
                       {columns.map(c => (
                         <td key={c.key} className="vt-td" style={{ width: c.width }}>
-                          {fmtCell(row[c.key], c.type)}
+                          {fmtCell(row[c.key], c.type, c.titleFn ? (c.titleFn(row) || undefined) : undefined)}
                         </td>
                       ))}
                       {extraCol && renderExtraCell && (
