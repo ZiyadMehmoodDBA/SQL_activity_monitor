@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react'
 import MissingIndexes from './MissingIndexes'
+import QueryTextModal from './QueryTextModal'
 import { useApp } from '../context/AppContext'
 import { metricStatusColor, C_CRIT, C_WARN } from '../lib/thresholds'
 import { escapeHtml, fmtNum, fmtBytes } from '../lib/fmt'
@@ -273,7 +274,7 @@ const VTABLE_SECTION_CFG = {
   active_expensive: { sectionId: 'active',    title: 'Active Expensive Queries', sortKey: 'active',    height: 280, metricKey: 'activeExpensive' },
   blocking:         { sectionId: 'blocking',  title: 'Blocking Chains',          sortKey: 'blocking',  height: 240, metricKey: 'blocking',  rowStyle: BLOCKING_ROW_STYLE, alertWhen: true, supportsDbFilter: true },
   deadlocks:        { sectionId: 'deadlocks', title: 'Deadlock History',         sortKey: 'deadlocks', height: 240, metricKey: 'deadlocks', rowStyle: DEADLOCK_ROW_STYLE, alertWhen: true },
-  cpu_intensive:    { sectionId: 'cpu',       title: 'CPU Intensive Queries',    sortKey: 'cpu',       height: 280, metricKey: 'cpuExpensive',  supportsTopN: true, supportsDbFilter: true, supportsClipboard: true },
+  cpu_intensive:    { sectionId: 'cpu',       title: 'CPU Intensive Queries',    sortKey: 'cpu',       height: 280, metricKey: 'cpuExpensive',  supportsTopN: true, supportsDbFilter: true, supportsQueryView: true },
   tempdb_usage:     { sectionId: 'tempdb',    title: 'TempDB Usage',             sortKey: 'tempdb',    height: 280, metricKey: 'tempdbUsage',   supportsTopN: true },
 }
 
@@ -296,6 +297,7 @@ export default memo(function Dashboard({ connId }) {
   const lastUpdated = useTimeSince(conn?.lastUpdate)
   const [bulkKill,   setBulkKill]   = useState(null)   // null | { count, confirmed }
   const [singleKill, setSingleKill] = useState(null)   // null | { sessionId, login, host, confirmed, killing, error }
+  const [queryView,  setQueryView]  = useState(null)   // null | row object
   const [topN,       setTopN]       = useState(10)
   const [dbFilter,   setDbFilter]   = useState('')
   const [killResult, setKillResult] = useState(null)
@@ -495,6 +497,12 @@ export default memo(function Dashboard({ connId }) {
                 <button className="copy-btn" onClick={() => navigator.clipboard.writeText(row.query_text || '').catch(() => {})}>Copy</button>
               ),
             } : {})}
+            {...(cfg.supportsQueryView ? {
+              extraCol: true,
+              renderExtraCell: row => (
+                <button className="copy-btn" onClick={() => setQueryView(row)}>View</button>
+              ),
+            } : {})}
           />
         </CollapsibleSection>
       )
@@ -567,6 +575,8 @@ export default memo(function Dashboard({ connId }) {
 
   return (
     <div>
+      <QueryTextModal row={queryView} onClose={() => setQueryView(null)} />
+
       {/* Kill sleeping — confirm dialog */}
       <Dialog open={!!bulkKill} onOpenChange={open => !open && setBulkKill(null)}>
         <DialogContent>
