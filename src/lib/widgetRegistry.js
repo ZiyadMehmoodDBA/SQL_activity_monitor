@@ -14,6 +14,7 @@ export const WIDGET_REGISTRY = [
   { id: 'chart_compilations', label: 'Compilations/sec',         group: 'panel',   category: 'Performance', defaultEnabled: true },
   { id: 'memory_health',      label: 'Memory Health',            group: 'panel',   category: 'Memory',      defaultEnabled: true },
   { id: 'drive_monitor',      label: 'Drive Space Monitor',      group: 'panel',   category: 'Storage',     defaultEnabled: true },
+  { id: 'query_optimization', label: 'Query Optimization',       group: 'panel',   category: 'Performance', defaultEnabled: true },
   { id: 'jobs_panel',         label: 'SQL Agent Jobs',           group: 'panel',   category: 'SQL Agent',   defaultEnabled: true },
   { id: 'sessions_panel',     label: 'Connected Sessions',       group: 'panel',   category: 'Sessions',    defaultEnabled: true },
   // ── Sections (orderable) ────────────────────────────────
@@ -30,6 +31,9 @@ export const WIDGET_REGISTRY = [
   { id: 'backup_health',       label: 'Backup Health',            group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'error_log',           label: 'SQL Error Log',            group: 'section', category: 'Queries',     defaultEnabled: true },
   { id: 'index_health',        label: 'Index Health',             group: 'section', category: 'Maintenance', defaultEnabled: false },
+  { id: 'cpu_intensive',       label: 'CPU Intensive Queries',    group: 'section', category: 'Queries',     defaultEnabled: true  },
+  { id: 'missing_indexes',     label: 'Missing Indexes',          group: 'section', category: 'Maintenance', defaultEnabled: true  },
+  { id: 'tempdb_usage',        label: 'TempDB Usage',             group: 'section', category: 'Database',    defaultEnabled: true  },
 ]
 
 export const PANEL_CATEGORIES = ['Performance', 'Memory', 'SQL Agent', 'Sessions']

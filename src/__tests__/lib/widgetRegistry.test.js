@@ -8,7 +8,7 @@ import {
 } from '../../lib/widgetRegistry'
 
 describe('WIDGET_REGISTRY', () => {
-  it('has 24 widgets', () => expect(WIDGET_REGISTRY).toHaveLength(24))
+  it('has 28 widgets', () => expect(WIDGET_REGISTRY).toHaveLength(28))
 
   it('all widgets have required fields', () => {
     for (const w of WIDGET_REGISTRY) {

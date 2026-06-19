@@ -90,6 +90,10 @@ async function takeDbSizeSnapshot(pool, serverKey) {
 // Map<id, { pool, label, server, handle, prevIO }>
 const connections = new Map();
 
+// ─── Missing index cache (per connection, advisory data) ──────────────────────
+const missingIndexCache = new Map() // Map<connId, { rows, ts, expiresAt }>
+const MISSING_INDEX_CACHE_MS = Math.max(1, parseInt(process.env.MISSING_INDEX_CACHE_MIN || '10') || 10) * 60 * 1000
+
 const scanStore = new MemoryScanStore()
 
 setInterval(() => {
@@ -183,6 +187,7 @@ const Q = {
       ISNULL(r.wait_type,'')                                 AS wait_type,
       ISNULL(r.wait_time,0)                                  AS wait_time,
       ISNULL(r.blocking_session_id,0)                        AS blocking_session_id,
+      ISNULL(DB_NAME(s.database_id),'')                      AS database_name,
       LEFT(ISNULL(SUBSTRING(t.text,
         (ISNULL(r.statement_start_offset,0)/2)+1,
         ((CASE ISNULL(r.statement_end_offset,-1) WHEN -1 THEN DATALENGTH(t.text)
@@ -263,19 +268,137 @@ const Q = {
 
   recentExpensive: `
     SELECT TOP 25
+      ISNULL(DB_NAME(st.dbid),'')                                              AS database_name,
       qs.execution_count,
-      CAST(qs.total_elapsed_time/qs.execution_count/1000.0 AS FLOAT) AS avg_elapsed_ms,
-      CAST(qs.total_worker_time/qs.execution_count/1000.0  AS FLOAT) AS avg_cpu_ms,
-      CAST(qs.total_logical_reads/NULLIF(qs.execution_count,0) AS FLOAT) AS avg_logical_reads,
-      CONVERT(VARCHAR(23),qs.last_execution_time,121) AS last_executed,
+      CAST(qs.total_elapsed_time/NULLIF(qs.execution_count,0)/1000.0 AS FLOAT) AS avg_elapsed_ms,
+      CAST(qs.total_elapsed_time / 1000.0 AS FLOAT)                           AS total_elapsed_ms,
+      CAST(qs.total_worker_time /NULLIF(qs.execution_count,0)/1000.0  AS FLOAT) AS avg_cpu_ms,
+      CAST(qs.total_worker_time / 1000.0 AS FLOAT)                            AS total_worker_time,
+      CAST(qs.total_logical_reads/NULLIF(qs.execution_count,0) AS FLOAT)      AS avg_logical_reads,
+      CONVERT(VARCHAR(23),qs.last_execution_time,121)                         AS last_executed,
       LEFT(ISNULL(SUBSTRING(st.text,
         (qs.statement_start_offset/2)+1,
         ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
           ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),300) AS query_text
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-    WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count>0
+    WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
     ORDER BY qs.total_elapsed_time/qs.execution_count DESC`,
+
+  cpuExpensive: `
+    SELECT TOP 50
+      ISNULL(DB_NAME(st.dbid),'')                                              AS database_name,
+      qs.execution_count,
+      CAST(qs.total_worker_time / 1000.0 AS FLOAT)                            AS total_worker_time,
+      CAST(qs.total_worker_time / NULLIF(qs.execution_count,0) / 1000.0 AS FLOAT) AS avg_cpu_ms,
+      CONVERT(VARCHAR(23),qs.last_execution_time,121)                         AS last_executed,
+      LEFT(ISNULL(SUBSTRING(st.text,
+        (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),150) AS query_text,
+      LEFT(ISNULL(SUBSTRING(st.text,
+        (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),4000) AS query_text_full,
+      CASE
+        WHEN st.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(st.objectid, st.dbid), 'Unknown')
+      END                                                                      AS parent_object,
+      ISNULL(OBJECT_SCHEMA_NAME(st.objectid, st.dbid),'')                      AS schema_name,
+      st.objectid                                                              AS object_id,
+      CASE
+        WHEN st.objectid IS NULL OR OBJECT_NAME(st.objectid, st.dbid) IS NULL THEN 'Ad Hoc Query'
+        WHEN ot.type_desc LIKE '%STORED_PROCEDURE' THEN 'Stored Procedure'
+        WHEN ot.type_desc LIKE '%TRIGGER'          THEN 'Trigger'
+        WHEN ot.type_desc LIKE '%FUNCTION'         THEN 'Function'
+        ELSE 'Unknown'
+      END                                                                      AS object_type
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    OUTER APPLY (
+      SELECT TOP 1 t.type_desc FROM (
+        SELECT type_desc FROM sys.dm_exec_procedure_stats WHERE object_id = st.objectid AND database_id = st.dbid
+        UNION ALL
+        SELECT type_desc FROM sys.dm_exec_trigger_stats   WHERE object_id = st.objectid AND database_id = st.dbid
+        UNION ALL
+        SELECT type_desc FROM sys.dm_exec_function_stats  WHERE object_id = st.objectid AND database_id = st.dbid
+      ) t
+    ) ot
+    WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
+    ORDER BY qs.total_worker_time DESC`,
+
+  ioExpensive: `
+    SELECT TOP 50
+      ISNULL(DB_NAME(st.dbid),'')                                              AS database_name,
+      qs.execution_count,
+      qs.total_logical_reads,
+      qs.total_physical_reads,
+      CAST(qs.total_logical_reads / NULLIF(qs.execution_count,0) AS FLOAT)     AS avg_logical_reads,
+      CONVERT(VARCHAR(23),qs.last_execution_time,121)                          AS last_executed,
+      LEFT(ISNULL(SUBSTRING(st.text,
+        (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END - qs.statement_start_offset)/2)+1),''),150) AS query_text,
+      CASE
+        WHEN st.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(st.objectid, st.dbid), 'Unknown')
+      END                                                                      AS parent_object
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    WHERE qs.last_execution_time > DATEADD(HOUR,-1,GETDATE()) AND qs.execution_count > 0
+    ORDER BY qs.total_logical_reads DESC`,
+
+  tempdbUsage: `
+    SELECT TOP 50
+      s.session_id,
+      ISNULL(s.login_name,'')                                                   AS login_name,
+      ISNULL(s.host_name,'')                                                    AS host_name,
+      su.user_objects_alloc_page_count                                          AS user_objects,
+      su.internal_objects_alloc_page_count                                      AS internal_objects,
+      (su.user_objects_alloc_page_count + su.internal_objects_alloc_page_count) AS total_pages,
+      (su.user_objects_alloc_page_count + su.internal_objects_alloc_page_count) * 8 AS memory_kb
+    FROM sys.dm_db_session_space_usage su
+    JOIN sys.dm_exec_sessions s ON s.session_id = su.session_id
+    WHERE su.user_objects_alloc_page_count + su.internal_objects_alloc_page_count > 0
+    ORDER BY total_pages DESC`,
+
+  missingIndexes: `
+    SELECT TOP 50
+      ISNULL(DB_NAME(d.database_id),'')             AS database_name,
+      OBJECT_NAME(d.object_id, d.database_id)       AS table_name,
+      d.equality_columns,
+      d.inequality_columns,
+      d.included_columns,
+      gs.user_seeks,
+      gs.user_scans,
+      CAST(
+        gs.avg_total_user_cost * gs.avg_user_impact * (gs.user_seeks + gs.user_scans)
+      AS DECIMAL(18,2))                             AS estimated_improvement,
+      'CREATE INDEX [' +
+        LEFT(
+          'IX_' + ISNULL(OBJECT_NAME(d.object_id, d.database_id),'obj') + '_' + CAST(d.index_handle AS VARCHAR(10)),
+          128
+        ) +
+        '] ON ' + ISNULL(d.statement,'[unknown]') + ' (' +
+        ISNULL(d.equality_columns, '') +
+        CASE
+          WHEN d.inequality_columns IS NOT NULL AND d.equality_columns IS NOT NULL THEN ','
+          ELSE ''
+        END +
+        ISNULL(d.inequality_columns, '') + ')' +
+        CASE
+          WHEN d.included_columns IS NOT NULL
+          THEN ' INCLUDE (' + d.included_columns + ')'
+          ELSE ''
+        END                                         AS create_index_sql
+    FROM sys.dm_db_missing_index_details d
+    JOIN sys.dm_db_missing_index_groups g
+      ON g.index_handle = d.index_handle
+    JOIN sys.dm_db_missing_index_group_stats gs
+      ON gs.group_handle = g.index_group_handle
+    WHERE d.database_id > 4
+      AND OBJECTPROPERTY(d.object_id,'IsMsShipped') = 0
+    ORDER BY estimated_improvement DESC`,
 
   activeExpensive: `
     SELECT TOP 50
@@ -315,7 +438,11 @@ const Q = {
       LEFT(ISNULL(SUBSTRING(t.text,
         (ISNULL(bc.statement_start_offset,0)/2)+1,
         ((CASE ISNULL(bc.statement_end_offset,-1) WHEN -1 THEN DATALENGTH(t.text)
-          ELSE bc.statement_end_offset END - ISNULL(bc.statement_start_offset,0))/2)+1),''),300) AS blocked_query
+          ELSE bc.statement_end_offset END - ISNULL(bc.statement_start_offset,0))/2)+1),''),300) AS blocked_query,
+      CASE
+        WHEN t.objectid IS NULL THEN 'Unknown'
+        ELSE ISNULL(OBJECT_NAME(t.objectid, t.dbid), 'Unknown')
+      END                                                                  AS parent_object
     FROM sys.dm_exec_requests bc
     JOIN  sys.dm_exec_sessions bc_s ON bc.session_id          = bc_s.session_id
     LEFT JOIN sys.dm_exec_sessions bs  ON bc.blocking_session_id = bs.session_id
@@ -483,7 +610,7 @@ const Q = {
 
 async function collectMetrics(pool, prevIO, prevNet) {
   const req = () => pool.request();
-  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR, backupHealthR] = await Promise.all([
+  const [cpuR, ovR, ioR, procR, waitR, curWaitR, fileR, recentR, activeR, dbSizesR, blockingR, deadlocksR, perfR, jobsR, diskR, backupHealthR, cpuExpensiveR, tempdbR, ioExpensiveR] = await Promise.all([
     req().query(Q.cpu),
     req().query(Q.overview),
     req().query(Q.ioSnapshot),
@@ -500,6 +627,9 @@ async function collectMetrics(pool, prevIO, prevNet) {
     req().query(Q.jobs).catch(err => { console.error('[jobs]', err.message); return { recordset: [] }; }),
     req().query(Q.diskDrives).catch(err => { console.error('[diskDrives]', err.message); return { recordset: [] }; }),
     req().query(Q.backupHealth).catch(err => { console.error('[backupHealth]', err.message); return { recordset: [] }; }),
+    req().query(Q.cpuExpensive).catch(err => { console.error('[cpuExpensive]', err.message); return { recordset: [] }; }),
+    req().query(Q.tempdbUsage).catch(err => { console.error('[tempdbUsage]', err.message); return { recordset: [] }; }),
+    req().query(Q.ioExpensive).catch(err => { console.error('[ioExpensive]', err.message); return { recordset: [] }; }),
   ]);
 
   // ── Supplement diskDrives with OS drives that have no SQL files ───────────────
@@ -615,6 +745,9 @@ async function collectMetrics(pool, prevIO, prevNet) {
     jobs:            jobsR.recordset,
     diskDrives:      diskDrives,
     backupHealth:    backupHealthR.recordset,
+    cpuExpensive:    cpuExpensiveR.recordset,
+    tempdbUsage:     tempdbR.recordset,
+    ioExpensive:     ioExpensiveR.recordset,
     _prevIO:  { bytes: currBytes,    time: now },
     _prevNet: { bytes: currNetBytes, time: now },
   };
@@ -716,6 +849,7 @@ app.delete('/api/disconnect/:id', async (req, res) => {
   clearInterval(conn.snapshotHandle);
   try { await conn.pool.close(); } catch {}
   connections.delete(req.params.id);
+  missingIndexCache.delete(req.params.id);
   console.log(`- Disconnected: ${conn.label} [${req.params.id.slice(0,8)}]`);
   res.json({ ok: true });
 });
@@ -857,6 +991,27 @@ app.get('/api/connections/:id/error-log', async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+app.get('/api/connections/:id/missing-indexes', async (req, res) => {
+  const conn = requireConn(req, res)
+  if (!conn) return
+  const force = req.query.force === '1'
+  const ttlMinutes = Math.round(MISSING_INDEX_CACHE_MS / 60000)
+  const cached = missingIndexCache.get(req.params.id)
+  if (!force && cached && Date.now() < cached.expiresAt) {
+    return res.json({ rows: cached.rows, count: cached.rows.length, ts: cached.ts, cached: true, ttlMinutes })
+  }
+  try {
+    const result = await conn.pool.request().query(Q.missingIndexes)
+    const rows = result.recordset
+    const ts = new Date().toISOString()
+    missingIndexCache.set(req.params.id, { rows, ts, expiresAt: Date.now() + MISSING_INDEX_CACHE_MS })
+    res.json({ rows, count: rows.length, ts, cached: false, ttlMinutes })
+  } catch (err) {
+    console.error('[missing-indexes]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // ─── Index Health API ─────────────────────────────────────────────────────────
 const VALID_SCAN_MODES = new Set(['LIMITED', 'SAMPLED', 'DETAILED'])

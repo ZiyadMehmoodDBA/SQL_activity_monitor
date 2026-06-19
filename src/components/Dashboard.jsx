@@ -1,11 +1,16 @@
 import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react'
+import MissingIndexes from './MissingIndexes'
+import QueryTextModal from './QueryTextModal'
 import { useApp } from '../context/AppContext'
+import { metricStatusColor, C_CRIT, C_WARN } from '../lib/thresholds'
+import { escapeHtml, fmtNum, fmtBytes } from '../lib/fmt'
 import { PALETTES } from '../lib/palettes'
 import { TABLE_COLS } from '../lib/tableCols'
 import { WIDGET_REGISTRY } from '../lib/widgetRegistry'
 import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
 import JobsPanel from './JobsPanel'
+import QueryOptimizationSection from './QueryOptimizationSection'
 import SessionsPanel from './SessionsPanel'
 import MemoryHealth from './MemoryHealth'
 import CollapsibleSection from './CollapsibleSection'
@@ -18,6 +23,135 @@ import BackupHealth, { ageMs, FULL_CRIT_MS, LOG_CRIT_MS } from './BackupHealth'
 import ErrorLog from './ErrorLog'
 import IndexHealth from './IndexHealth'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogClose } from './ui/Dialog'
+
+// ─── PDF Health Report ────────────────────────────────────────────────────────
+function printReport(conn) {
+  const m = conn?.metrics
+  if (!m) { alert('No data yet — wait for the first metrics update.'); return }
+
+  const now  = new Date()
+  const ts   = now.toLocaleString()
+  const sp   = m.serverPerf || {}
+  const fmt  = (v, d = 0) => v == null ? '—' : Number(v).toFixed(d)
+  const fN   = v => fmtNum(v)
+
+  const badge = lvl => {
+    const map = { ok: ['badge-ok','OK'], warn: ['badge-warn','WARN'], crit: ['badge-crit','CRIT'] }
+    const [cls, txt] = map[lvl] || ['badge-none','—']
+    return `<span class="badge ${cls}">${txt}</span>`
+  }
+  const kpiLvl = (key, val) => {
+    const c = metricStatusColor(key, val)
+    return c === C_CRIT ? 'crit' : c === C_WARN ? 'warn' : val != null ? 'ok' : null
+  }
+
+  const kpiHtml = [
+    { label: 'CPU Usage',      val: fmt(m.cpu_percent)+'%',      lvl: kpiLvl('cpu',      m.cpu_percent) },
+    { label: 'Waiting Tasks',  val: fN(m.waiting_tasks),         lvl: kpiLvl('wait',     m.waiting_tasks) },
+    { label: 'DB I/O',         val: fmt(m.db_io_mb, 1)+' MB/s',  lvl: null },
+    { label: 'Batch Req/s',    val: fN(m.batch_requests),        lvl: null },
+    { label: 'SQL Memory',     val: fmt(sp.sqlMemPct, 1)+'%',    lvl: kpiLvl('sqlmem',   sp.sqlMemPct) },
+    { label: 'Page Life Exp.', val: fN(sp.pleSec)+'s',           lvl: kpiLvl('ple',      sp.pleSec) },
+  ].map(k => {
+    const col = k.lvl === 'crit' ? '#dc2626' : k.lvl === 'warn' ? '#ea580c' : '#1e293b'
+    return `<div class="kpi-card"><div class="kpi-label">${escapeHtml(k.label)}</div><div class="kpi-val" style="color:${col}">${escapeHtml(k.val)}</div></div>`
+  }).join('')
+
+  const memHtml = `<table><thead><tr><th>Metric</th><th>Value</th><th>Status</th></tr></thead><tbody>
+    <tr><td>SQL Memory Used / Target</td><td>${fmt(sp.sqlMemPct,1)}% &nbsp;(${fmt(sp.sqlTotalMemGb,1)} GB / ${fmt(sp.sqlTargetMemGb,1)} GB)</td><td>${badge(kpiLvl('sqlmem',sp.sqlMemPct))}</td></tr>
+    <tr><td>Page Life Expectancy</td><td>${fN(sp.pleSec)} s</td><td>${badge(kpiLvl('ple',sp.pleSec))}</td></tr>
+    <tr><td>Buffer Cache Hit Ratio</td><td>${fmt(sp.bufferCacheHit,1)}%</td><td>${badge(kpiLvl('bufcache',sp.bufferCacheHit))}</td></tr>
+    <tr><td>Memory Grants Pending</td><td>${fmt(sp.memGrantsPending)}</td><td>${badge(kpiLvl('grants',sp.memGrantsPending))}</td></tr>
+    <tr><td>User Connections</td><td>${fN(sp.userConns)}</td><td></td></tr>
+    <tr><td>Compilations/sec</td><td>${fN(sp.compilationsSec)}</td><td></td></tr>
+    <tr><td>Re-Compilations/sec</td><td>${fN(sp.recompilationsSec)}</td><td></td></tr>
+  </tbody></table>`
+
+  const waits = (m.resourceWaits || []).slice(0, 10)
+  const waitsHtml = waits.length
+    ? `<table><thead><tr><th>Wait Type</th><th>Tasks</th><th>Total Wait (ms)</th><th>Max Wait (ms)</th><th>Signal Wait (ms)</th></tr></thead><tbody>${
+        waits.map(w => `<tr><td><code>${escapeHtml(w.wait_type)}</code></td><td>${fN(w.waiting_tasks_count)}</td><td>${fN(w.wait_time_ms)}</td><td>${fN(w.max_wait_time_ms)}</td><td>${fN(w.signal_wait_time_ms)}</td></tr>`).join('')
+      }</tbody></table>`
+    : '<p class="empty">No wait data.</p>'
+
+  const bkpLvl = last => { if (!last) return 'crit'; const d = (Date.now()-new Date(last))/(864e5); return d>7?'crit':d>1?'warn':'ok' }
+  const backups = m.backupHealth || []
+  const backupsHtml = backups.length
+    ? `<table><thead><tr><th>Database</th><th>Recovery Model</th><th>Last Full</th><th>Last Diff</th><th>Last Log</th><th>Status</th></tr></thead><tbody>${
+        backups.map(b => `<tr><td>${escapeHtml(b.database_name)}</td><td>${escapeHtml(b.recovery_model_desc)}</td>
+          <td>${b.last_full ? new Date(b.last_full).toLocaleString() : '<span style="color:#dc2626">Never</span>'}</td>
+          <td>${b.last_diff ? new Date(b.last_diff).toLocaleString() : '—'}</td>
+          <td>${b.last_log  ? new Date(b.last_log).toLocaleString()  : '—'}</td>
+          <td>${badge(bkpLvl(b.last_full))}</td></tr>`).join('')
+      }</tbody></table>`
+    : '<p class="empty">No backup data.</p>'
+
+  const sizes = (m.dbSizes || []).slice(0, 15)
+  const sizesHtml = sizes.length
+    ? `<h2>Database Sizes</h2><table><thead><tr><th>Database</th><th>Allocated</th><th>Volume Total</th><th>Volume Free</th><th>Drive Used %</th></tr></thead><tbody>${
+        sizes.map(d => {
+          const usedP = d.volume_total_bytes ? ((1 - d.volume_available_bytes/d.volume_total_bytes)*100).toFixed(1)+'%' : '—'
+          return `<tr><td>${escapeHtml(d.database_name)}</td><td>${fmtBytes(d.allocated_bytes)}</td><td>${fmtBytes(d.volume_total_bytes)}</td><td>${fmtBytes(d.volume_available_bytes)}</td><td>${usedP}</td></tr>`
+        }).join('')
+      }</tbody></table>`
+    : ''
+
+  const queries = (m.recentExpensive || []).slice(0, 10)
+  const queriesHtml = queries.length
+    ? `<table><thead><tr><th>Executions</th><th>Avg Elapsed (ms)</th><th>Avg CPU (ms)</th><th>Avg Reads</th><th>Last Executed</th><th style="min-width:200px">Query</th></tr></thead><tbody>${
+        queries.map(q => {
+          const qt = (q.query_text || '').trim().slice(0, 160)
+          return `<tr><td>${fN(q.execution_count)}</td><td>${fmt(q.avg_elapsed_ms)}</td><td>${fmt(q.avg_cpu_ms)}</td><td>${fmt(q.avg_logical_reads)}</td>
+            <td style="white-space:nowrap">${escapeHtml(q.last_executed||'—')}</td>
+            <td style="font-family:monospace;font-size:9px;word-break:break-all">${escapeHtml(qt)}${qt.length < (q.query_text||'').trim().length ? '…' : ''}</td></tr>`
+        }).join('')
+      }</tbody></table>`
+    : '<p class="empty">No query data.</p>'
+
+  const sessions = (m.processes||[]).filter(p => p.status !== 'sleeping').slice(0, 25)
+  const sessionsHtml = sessions.length
+    ? `<table><thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Database</th><th>Status</th><th>Wait Type</th><th>Elapsed (s)</th><th>CPU (ms)</th></tr></thead><tbody>${
+        sessions.map(s => `<tr><td>${escapeHtml(s.session_id)}</td><td>${escapeHtml(s.login_name)}</td><td>${escapeHtml(s.host_name)}</td><td>${escapeHtml(s.database_name)}</td><td>${escapeHtml(s.status)}</td><td>${escapeHtml(s.wait_type||'—')}</td><td>${escapeHtml(s.elapsed_sec)}</td><td>${fN(s.cpu_time)}</td></tr>`).join('')
+      }</tbody></table>`
+    : '<p class="empty">No active sessions.</p>'
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>SQL Health Report — ${escapeHtml(conn.label||conn.server)} — ${now.toISOString().slice(0,10)}</title>
+<style>
+*{box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;color:#1e293b;background:#fff;margin:0;padding:24px 28px;line-height:1.5}
+h1{font-size:20px;font-weight:800;margin:0 0 2px;letter-spacing:-.02em}h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin:22px 0 8px;border-bottom:1.5px solid #e2e8f0;padding-bottom:5px}
+.meta{font-size:11px;color:#94a3b8;margin-bottom:20px}.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:4px}
+.kpi-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px}.kpi-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-bottom:4px}
+.kpi-val{font-size:22px;font-weight:700;line-height:1.2}table{width:100%;border-collapse:collapse;margin-bottom:8px}
+th{background:#f8fafc;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;padding:5px 8px;text-align:left;border-bottom:1.5px solid #e2e8f0;white-space:nowrap}
+td{padding:4px 8px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#334155;vertical-align:top}tr:nth-child(even) td{background:#fafbfc}
+.badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:9px;font-weight:700;letter-spacing:.04em}
+.badge-ok{background:#dcfce7;color:#166534}.badge-warn{background:#fef9c3;color:#854d0e}.badge-crit{background:#fee2e2;color:#991b1b}.badge-none{background:#f1f5f9;color:#64748b}
+code{font-family:'Cascadia Code',Consolas,monospace;font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+.empty{color:#94a3b8;font-style:italic;font-size:11px;margin:4px 0 12px}
+.footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8}
+@media print{@page{size:A4;margin:12mm 14mm}body{padding:0}table,.kpi-grid{break-inside:avoid}}
+</style></head><body>
+<h1>SQL Server Health Report</h1>
+<div class="meta">${escapeHtml(conn.label||conn.server)} &nbsp;·&nbsp; ${escapeHtml(conn.server)} &nbsp;·&nbsp; Generated ${ts}</div>
+<h2>Executive Summary</h2><div class="kpi-grid">${kpiHtml}</div>
+<h2>Memory Health</h2>${memHtml}
+<h2>Top Resource Waits — Cumulative (Top 10)</h2>${waitsHtml}
+<h2>Backup Health</h2>${backupsHtml}
+${sizesHtml}
+<h2>Recent Expensive Queries — Last Hour (Top 10)</h2>${queriesHtml}
+<h2>Active Sessions — Non-sleeping (Top 25)</h2>${sessionsHtml}
+<div class="footer">SQL Activity Monitor &nbsp;·&nbsp; Snapshot generated ${ts} &nbsp;·&nbsp; Data reflects last 2-second poll cycle.</div>
+</body></html>`
+
+  const blob = new Blob([html], { type: 'text/html' })
+  const url  = URL.createObjectURL(blob)
+  const w    = window.open(url, '_blank', 'width=960,height=720')
+  if (!w) { URL.revokeObjectURL(url); alert('Pop-up blocked — allow pop-ups for this page and try again.'); return }
+  w.addEventListener('load', () => {
+    setTimeout(() => { w.print(); URL.revokeObjectURL(url) }, 350)
+  })
+}
 
 const SECTION_IDS = WIDGET_REGISTRY.filter(w => w.group === 'section').map(w => w.id)
 
@@ -137,10 +271,12 @@ const DEADLOCK_ROW_STYLE  = () => ({ background: '#fff7ed' })
 
 const VTABLE_SECTION_CFG = {
   file_io:          { sectionId: 'fileio',    title: 'Data File I/O',            sortKey: 'fileio',    height: 280, metricKey: 'dataFileIO' },
-  recent_expensive: { sectionId: 'recent',    title: 'Recent Expensive Queries', sortKey: 'recent',    height: 280, metricKey: 'recentExpensive' },
+  recent_expensive: { sectionId: 'recent',    title: 'Recent Expensive Queries', sortKey: 'recent',    height: 280, metricKey: 'recentExpensive', supportsTopN: true, supportsDbFilter: true, supportsClipboard: true },
   active_expensive: { sectionId: 'active',    title: 'Active Expensive Queries', sortKey: 'active',    height: 280, metricKey: 'activeExpensive' },
-  blocking:         { sectionId: 'blocking',  title: 'Blocking Chains',          sortKey: 'blocking',  height: 240, metricKey: 'blocking',  rowStyle: BLOCKING_ROW_STYLE, alertWhen: true },
+  blocking:         { sectionId: 'blocking',  title: 'Blocking Chains',          sortKey: 'blocking',  height: 240, metricKey: 'blocking',  rowStyle: BLOCKING_ROW_STYLE, alertWhen: true, supportsDbFilter: true },
   deadlocks:        { sectionId: 'deadlocks', title: 'Deadlock History',         sortKey: 'deadlocks', height: 240, metricKey: 'deadlocks', rowStyle: DEADLOCK_ROW_STYLE, alertWhen: true },
+  cpu_intensive:    { sectionId: 'cpu',       title: 'CPU Intensive Queries',    sortKey: 'cpu',       height: 280, metricKey: 'cpuExpensive',  supportsTopN: true, supportsDbFilter: true, supportsQueryView: true },
+  tempdb_usage:     { sectionId: 'tempdb',    title: 'TempDB Usage',             sortKey: 'tempdb',    height: 280, metricKey: 'tempdbUsage',   supportsTopN: true },
 }
 
 // ── Chart config builder (pure, no side effects) ──────────────────────────────
@@ -162,7 +298,15 @@ export default memo(function Dashboard({ connId }) {
   const lastUpdated = useTimeSince(conn?.lastUpdate)
   const [bulkKill,   setBulkKill]   = useState(null)   // null | { count, confirmed }
   const [singleKill, setSingleKill] = useState(null)   // null | { sessionId, login, host, confirmed, killing, error }
+  const [queryView,  setQueryView]  = useState(null)   // null | row object
+  const [topN,       setTopN]       = useState(10)
+  const [dbFilter,   setDbFilter]   = useState('')
   const [killResult, setKillResult] = useState(null)
+  useEffect(() => {
+    setTopN(10)
+    setDbFilter('')
+    setQueryView(null)
+  }, [connId])
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
     clearTimeout(killResultTimer.current)
@@ -202,6 +346,7 @@ export default memo(function Dashboard({ connId }) {
   )
 
   const showJobs     = on('jobs_panel')
+  const showQueryOpt = on('query_optimization')
   const showSessions = on('sessions_panel')
 
   // ── Sort helpers ─────────────────────────────────────────────────────────
@@ -215,8 +360,18 @@ export default memo(function Dashboard({ connId }) {
   // NOT on every 2s metrics update that doesn't affect that table.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sortedProc      = useMemo(() => sortRows(m?.processes,       conn.sortState.proc),      [m?.processes,       conn.sortState.proc])
+
+  const waitsWithPct = useMemo(() => {
+    const rows = m?.resourceWaits || []
+    const total = rows.reduce((s, r) => s + (r.wait_time_ms || 0), 0)
+    return rows.map(r => ({
+      ...r,
+      wait_pct: total > 0 ? +((r.wait_time_ms / total) * 100).toFixed(1) : 0,
+    }))
+  }, [m?.resourceWaits])
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const sortedWaits     = useMemo(() => sortRows(m?.resourceWaits,   conn.sortState.waits),     [m?.resourceWaits,   conn.sortState.waits])
+  const sortedWaits     = useMemo(() => sortRows(waitsWithPct,        conn.sortState.waits),     [waitsWithPct,        conn.sortState.waits])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sortedFileio    = useMemo(() => sortRows(m?.dataFileIO,      conn.sortState.fileio),    [m?.dataFileIO,      conn.sortState.fileio])
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,8 +382,32 @@ export default memo(function Dashboard({ connId }) {
   const sortedBlocking  = useMemo(() => sortRows(m?.blocking,        conn.sortState.blocking),  [m?.blocking,        conn.sortState.blocking])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sortedDeadlocks = useMemo(() => sortRows(m?.deadlocks,       conn.sortState.deadlocks), [m?.deadlocks,       conn.sortState.deadlocks])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedCpu       = useMemo(() => sortRows(m?.cpuExpensive,    conn.sortState.cpu),       [m?.cpuExpensive,    conn.sortState.cpu])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sortedTempdb    = useMemo(() => sortRows(m?.tempdbUsage,     conn.sortState.tempdb),    [m?.tempdbUsage,     conn.sortState.tempdb])
 
-  const sortedByKey = { fileio: sortedFileio, recent: sortedRecent, active: sortedActive, blocking: sortedBlocking, deadlocks: sortedDeadlocks }
+  const dbNames = useMemo(() => {
+    const sets = [
+      ...(m?.recentExpensive || []),
+      ...(m?.cpuExpensive    || []),
+      ...(m?.blocking        || []),
+    ]
+    const names = [...new Set(sets.map(r => r.database_name).filter(Boolean))].sort()
+    return names
+  }, [m?.recentExpensive, m?.cpuExpensive, m?.blocking])
+
+  function applyMvpFilter(rows, topN, dbFilter) {
+    let r = rows
+    if (dbFilter) r = r.filter(row => row.database_name === dbFilter)
+    return r.slice(0, topN)
+  }
+
+  const filteredRecent   = applyMvpFilter(sortedRecent,   topN, dbFilter)
+  const filteredCpu      = applyMvpFilter(sortedCpu,      topN, dbFilter)
+  const filteredBlocking = applyMvpFilter(sortedBlocking, topN, dbFilter)
+
+  const sortedByKey = { fileio: sortedFileio, recent: filteredRecent, active: sortedActive, blocking: filteredBlocking, deadlocks: sortedDeadlocks, cpu: filteredCpu, tempdb: sortedTempdb }
 
   const backupCritCount = useMemo(
     () => (m?.backupHealth || []).filter(r => {
@@ -293,11 +472,41 @@ export default memo(function Dashboard({ connId }) {
       return (
         <CollapsibleSection key={id} connId={connId} sectionId={cfg.sectionId} title={cfg.title}
           badge={<SectionBadge count={m?.[cfg.metricKey]?.length || 0} alertWhen={cfg.alertWhen} />}>
+          {id === 'cpu_intensive' && (
+            <div className="flex items-center gap-3 px-4 py-2 text-xs text-gray-500">
+              <label className="flex items-center gap-1">
+                Top:
+                <select value={topN} onChange={e => setTopN(Number(e.target.value))} className="ml-1 border rounded px-1 py-0.5 text-xs">
+                  {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                Database:
+                <select value={dbFilter} onChange={e => setDbFilter(e.target.value)} className="ml-1 border rounded px-1 py-0.5 text-xs">
+                  <option value="">All</option>
+                  {dbNames.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
           <VirtualTable rows={sortedByKey[cfg.sortKey]} columns={TABLE_COLS[cfg.sortKey]}
             height={cfg.height}
             sortCol={conn.sortState[cfg.sortKey].col} sortDir={conn.sortState[cfg.sortKey].dir}
             onSort={col => handleSort(cfg.sortKey, col)}
-            rowStyle={cfg.rowStyle} />
+            rowStyle={cfg.rowStyle}
+            {...(cfg.supportsClipboard ? {
+              extraCol: true,
+              renderExtraCell: row => (
+                <button className="copy-btn" onClick={() => navigator.clipboard.writeText(row.query_text || '').catch(() => {})}>Copy</button>
+              ),
+            } : {})}
+            {...(cfg.supportsQueryView ? {
+              extraCol: true,
+              renderExtraCell: row => (
+                <button className="copy-btn" onClick={() => setQueryView(row)}>View</button>
+              ),
+            } : {})}
+          />
         </CollapsibleSection>
       )
     }
@@ -360,6 +569,8 @@ export default memo(function Dashboard({ connId }) {
         return <ErrorLog key={id} connId={connId} />
       case 'index_health':
         return <IndexHealth key={id} connId={connId} />
+      case 'missing_indexes':
+        return <MissingIndexes key={id} connId={connId} topN={topN} dbFilter={dbFilter} />
       default:
         return null
     }
@@ -367,6 +578,8 @@ export default memo(function Dashboard({ connId }) {
 
   return (
     <div>
+      <QueryTextModal row={queryView} onClose={() => setQueryView(null)} />
+
       {/* Kill sleeping — confirm dialog */}
       <Dialog open={!!bulkKill} onOpenChange={open => !open && setBulkKill(null)}>
         <DialogContent>
@@ -478,6 +691,13 @@ export default memo(function Dashboard({ connId }) {
         <span className="ml-auto text-xs font-semibold tabular-nums transition-colors" style={{ fontSize: 11, color: lastUpdated === 'Live' ? '#22c55e' : 'var(--text-muted)' }}>
           {lastUpdated}
         </span>
+        <button
+          onClick={() => printReport(conn)}
+          title="Download PDF Health Report"
+          style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--divider)', background: 'var(--input-bg)', color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0, marginLeft: 8 }}
+          onMouseOver={e => e.currentTarget.style.borderColor = 'var(--sort-active)'}
+          onMouseOut={e  => e.currentTarget.style.borderColor = 'var(--divider)'}
+        >↓ Report</button>
       </div>
 
       {/* KPI bar */}
@@ -504,6 +724,15 @@ export default memo(function Dashboard({ connId }) {
           </div>
         ))}
       </div>
+
+      {/* Query Optimization widgets */}
+      {showQueryOpt && (
+        <QueryOptimizationSection
+          blocking={m?.blocking || []}
+          cpuRows={m?.cpuExpensive || []}
+          ioRows={m?.ioExpensive || []}
+        />
+      )}
 
       {/* Row 3: Jobs + Sessions */}
       {(showJobs || showSessions) && (
