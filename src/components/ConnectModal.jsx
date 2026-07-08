@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogClose } from './ui/Dialog'
+import { Dialog, DialogContent, DialogClose, DialogTitle } from './ui/Dialog'
 import { X } from 'lucide-react'
 
 // ── Palette-aware design tokens (follow active CSS vars) ──────────────────────
@@ -246,9 +246,9 @@ export default function ConnectModal({ open, onClose, onConnected, prefillError 
             </svg>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: T.text, lineHeight: 1.3 }}>
+            <DialogTitle style={{ fontWeight: 700, fontSize: 16, color: T.text, lineHeight: 1.3 }}>
               Connect to SQL Server
-            </div>
+            </DialogTitle>
             <div style={{ fontSize: 12, color: T.label, marginTop: 2 }}>
               Add a new monitored instance
             </div>

@@ -56,7 +56,7 @@
     .field-input:focus { outline:none; border-color:var(--sort-active); box-shadow:0 0 0 3px rgba(59,130,246,.15); }
     .auth-pill { display:flex; background:var(--section-hover); border-radius:8px; padding:3px; gap:2px; }
     .auth-btn { flex:1; padding:7px 12px; font-size:12px; font-weight:500; border-radius:6px; cursor:pointer; transition:all .15s; color:var(--header-ts); background:transparent; }
-    .auth-btn.active { background:var(--sort-active); box-shadow:0 1px 4px rgba(0,0,0,.15); color:#fff; font-weight:600; }
+    .auth-btn.active { background:var(--card-bg); box-shadow:inset 0 0 0 2px var(--sort-active); color:var(--body-text); font-weight:700; }
     .connect-btn { width:100%; padding:11px; background:var(--header-bg); color:#fff; font-size:14px; font-weight:600; border-radius:9px; cursor:pointer; transition:opacity .15s; border:none; }
     .connect-btn:hover { opacity:.85; }
     .connect-btn:disabled { opacity:.5; cursor:not-allowed; }
@@ -120,8 +120,8 @@
     ::-webkit-scrollbar-thumb:hover { background:var(--scroll-thumb-h); }
 
     /* ── Misc ── */
-    #palette-btn:hover { background:rgba(255,255,255,.12); }
-    #palette-menu { min-width:190px; }
+    #settings-btn:hover { background:rgba(255,255,255,.12); }
+    #settings-drawer { transform:translateX(100%); transition:transform .22s ease; }
     .modal-tab { border-color:transparent; color:var(--header-ts); }
     .modal-tab:hover { color:var(--body-text); }
     .modal-tab.active { border-color:var(--sort-active); color:var(--sort-active); font-weight:600; }
@@ -134,6 +134,41 @@
     .db-bar-fill.bar-ok   { background:#22c55e; }
     .db-bar-fill.bar-warn { background:#f59e0b; }
     .db-bar-fill.bar-crit { background:#ef4444; }
+
+    /* ── Responsive ── */
+    .memh-grid { display:grid; gap:1.5rem; grid-template-columns:1fr; }
+    @media (min-width:1024px) {
+      .memh-grid { grid-template-columns:2fr 3fr; }
+      .memh-right { border-left:1px solid #f1f5f9; padding-left:1.25rem; }
+    }
+
+    /* ── Skeleton loading ── */
+    @keyframes sk-pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+    [data-loading] .sk {
+      background:var(--divider);
+      border-radius:4px;
+      color:transparent!important;
+      animation:sk-pulse 1.5s ease-in-out infinite;
+      display:inline-block;
+      min-width:48px;
+      height:.85em;
+      vertical-align:middle;
+      pointer-events:none;
+    }
+    [data-loading] .sk-wide { min-width:72px; }
+    [data-loading] .sk-xl   { min-width:96px; }
+    [data-loading] .sk-block { display:block; height:13px; border-radius:4px; }
+    /* ── Alert banner ── */
+    #alert-banner { background:var(--surface); border-bottom:1px solid rgba(0,0,0,.07); padding:5px 16px; display:none; flex-wrap:wrap; align-items:center; gap:6px; min-height:32px; }
+    .alert-chip { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:99px; font-size:11px; font-weight:600; letter-spacing:.02em; white-space:nowrap; }
+    .alert-chip.warn { background:#ea580c1a; color:#c2410c; border:1px solid #ea580c40; }
+    .alert-chip.crit { background:#dc26261a; color:#b91c1c; border:1px solid #dc262640; animation:alert-pulse 2s ease-in-out infinite; }
+    .alert-chip .adismiss { cursor:pointer; opacity:.55; margin-left:2px; font-size:10px; line-height:1; }
+    .alert-chip .adismiss:hover { opacity:1; }
+    @keyframes alert-pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
+    .export-csv-btn { font-size:10px; font-weight:700; letter-spacing:.04em; padding:2px 7px; border-radius:5px; border:1px solid var(--divider); color:var(--body-text); opacity:.55; cursor:pointer; flex-shrink:0; user-select:none; transition:opacity .12s; }
+    .alert-notif-btn { margin-left:auto; font-size:11px; padding:2px 10px; border-radius:6px; background:var(--badge-bg); color:var(--badge-text); border:1px solid var(--sort-active); cursor:pointer; flex-shrink:0; font-weight:600; }
+    .alert-notif-btn:hover { opacity:.8; }
   </style>
 </head>
 <body class="min-h-screen">
@@ -151,39 +186,53 @@
       <span class="w-2 h-2 rounded-full dot-idle" id="statusDot"></span>
       <span style="color:var(--header-status-txt);" id="statusText">Offline</span>
     </div>
-    <!-- Palette -->
-    <div class="relative flex-shrink-0">
-      <button id="palette-btn" onclick="togglePaletteMenu(event)"
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium"
-              style="color:var(--header-icon);">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
-        </svg>
-        <span id="palette-name-display">Mossy Hollow</span>
-        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
-      </button>
-      <div id="palette-menu" class="hidden absolute right-0 top-9 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1"></div>
-    </div>
+    <!-- Settings -->
+    <button id="settings-btn" onclick="toggleSettingsDrawer()" title="Settings"
+            class="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
+            style="color:var(--header-icon);">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+    </button>
   </div>
 </header>
+
+<!-- ── SETTINGS DRAWER ─────────────────────────────────────────────────────── -->
+<div id="settings-backdrop" onclick="closeSettingsDrawer()"
+     style="display:none;position:fixed;inset:0;z-index:59;background:rgba(0,0,0,.18);"></div>
+<div id="settings-drawer"
+     style="position:fixed;top:0;right:0;bottom:0;width:256px;z-index:60;display:flex;flex-direction:column;background:var(--card-bg);border-left:1px solid var(--card-border);box-shadow:-6px 0 28px rgba(0,0,0,.12);">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--divider);flex-shrink:0;">
+    <span style="font-size:13px;font-weight:700;color:var(--body-text);">Settings</span>
+    <button onclick="closeSettingsDrawer()"
+            style="color:var(--header-ts);font-size:20px;line-height:1;padding:1px 6px;border-radius:5px;cursor:pointer;"
+            onmouseover="this.style.color='var(--body-text)'" onmouseout="this.style.color='var(--header-ts)'">×</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;">
+    <div style="padding:14px 20px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--header-ts);">Appearance</div>
+    <div id="palette-grid"></div>
+  </div>
+</div>
 
 <!-- ── TAB BAR ─────────────────────────────────────────────────────────────── -->
 <div id="tab-bar" class="hidden">
   <button id="add-conn-btn" onclick="showConnectModal()" title="New connection">+</button>
 </div>
 
+<!-- ── ALERT BANNER ─────────────────────────────────────────────────────────── -->
+<div id="alert-banner"></div>
+
 <!-- ── MAIN ────────────────────────────────────────────────────────────────── -->
-<main id="dashboard-container" class="p-6 space-y-0" style="max-width:1920px;margin:0 auto;">
+<main id="dashboard-container" class="p-4 sm:p-6 space-y-0" style="max-width:1920px;margin:0 auto;">
   <!-- Empty state -->
   <div id="empty-state" class="flex flex-col items-center justify-center py-32 text-center">
     <svg class="w-16 h-16 text-slate-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7h16M4 12h16M4 17h16"/>
     </svg>
-    <h2 class="text-xl font-semibold text-slate-500 mb-2">No Active Connections</h2>
-    <p class="text-slate-400 text-sm mb-6">Connect to a SQL Server instance to start monitoring</p>
+    <h2 class="text-xl font-semibold text-slate-500 mb-2" id="empty-state-title">No Active Connections</h2>
+    <p class="text-slate-400 text-sm mb-6" id="empty-state-msg">Connect to a SQL Server instance to start monitoring</p>
     <button onclick="showConnectModal()"
             class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
             style="background:var(--header-bg);">
@@ -384,31 +433,58 @@ function applyPalette(name) {
 }
 
 function renderPaletteMenu() {
-  const menu = document.getElementById('palette-menu');
-  menu.innerHTML = Object.entries(PALETTES).map(([name, p]) => `
+  const el = document.getElementById('palette-grid');
+  if (!el) return;
+  el.innerHTML = Object.entries(PALETTES).map(([name, p]) => `
     <button onclick="selectPalette('${name}')"
-            class="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors ${name===currentPalette?'bg-slate-50':''}">
+            class="w-full flex items-center gap-2.5 px-5 py-2.5 text-left text-sm transition-colors ${name===currentPalette?'bg-slate-50':''}"
+            style="color:var(--body-text);"
+            onmouseover="this.style.background='var(--section-hover)'" onmouseout="this.style.background='${name===currentPalette?'var(--divider)':''}'" >
       <span class="w-3.5 h-3.5 rounded-full flex-shrink-0 ring-2 ${name===currentPalette?'ring-slate-400':'ring-transparent'}"
             style="background:${p.swatch};"></span>
-      <span class="text-slate-700 ${name===currentPalette?'font-semibold':''}">${name}</span>
-      ${name===currentPalette?'<svg class="ml-auto w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>':''}
+      <span class="${name===currentPalette?'font-semibold':''}">${name}</span>
+      ${name===currentPalette?'<svg class="ml-auto w-3.5 h-3.5 flex-shrink-0" style="color:var(--sort-active);" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>':''}
     </button>`).join('');
 }
 
-function togglePaletteMenu(e) {
-  e.stopPropagation();
-  const menu = document.getElementById('palette-menu');
-  menu.classList.toggle('hidden');
-  if (!menu.classList.contains('hidden')) renderPaletteMenu();
+function openSettingsDrawer() {
+  document.getElementById('settings-drawer').style.transform = 'translateX(0)';
+  document.getElementById('settings-backdrop').style.display = 'block';
+  renderPaletteMenu();
 }
-function selectPalette(name) { applyPalette(name); document.getElementById('palette-menu').classList.add('hidden'); }
-document.addEventListener('click', () => document.getElementById('palette-menu')?.classList.add('hidden'));
+function closeSettingsDrawer() {
+  document.getElementById('settings-drawer').style.transform = '';
+  document.getElementById('settings-backdrop').style.display = 'none';
+}
+function toggleSettingsDrawer() {
+  const open = document.getElementById('settings-drawer').style.transform === 'translateX(0px)'
+            || document.getElementById('settings-drawer').style.transform === 'translateX(0)';
+  open ? closeSettingsDrawer() : openSettingsDrawer();
+}
+function selectPalette(name) { applyPalette(name); }
 
 // ─── Connection state ─────────────────────────────────────────────────────────
 const conns = {}; // id → { label, server, history, charts, tableData, sortState }
 let activeConnId = null;
 
 const HISTORY_LEN = 60;
+
+// ─── Connection persistence ───────────────────────────────────────────────────
+const SAVED_CONNS_KEY = 'sql_monitor_saved_conns';
+function getSavedConns() {
+  try { return JSON.parse(localStorage.getItem(SAVED_CONNS_KEY) || '[]'); } catch { return []; }
+}
+function upsertSavedConn(id, cfg) {
+  const list = getSavedConns().filter(c => c._clientId !== id);
+  list.push({ _clientId: id, ...cfg });
+  localStorage.setItem(SAVED_CONNS_KEY, JSON.stringify(list));
+}
+function removeSavedConn(id) {
+  localStorage.setItem(SAVED_CONNS_KEY, JSON.stringify(getSavedConns().filter(c => c._clientId !== id)));
+}
+
+let _pendingSqlReconnect = [];
+let _reconnectMode       = false;
 
 // ─── Status color system ──────────────────────────────────────────────────────
 const C_OK   = '#16a34a';  // green   — healthy
@@ -454,7 +530,7 @@ function applyMetricStatus(connId, key, val) {
 
   // KPI card border
   const cardEl = document.getElementById(`kpi-card-${key}-${connId}`);
-  if (cardEl) cardEl.style.borderLeftColor = color || '';
+  if (cardEl) cardEl.style.background = color ? color + '0d' : '';
 
   // Chart line — key mapping: val key → charts key
   const chartMap = { cpu:'cpu', wait:'wait' };
@@ -469,6 +545,267 @@ function applyMetricStatus(connId, key, val) {
     }
   }
 }
+
+// ─── Alert Notifications ──────────────────────────────────────────────────────
+const ALERT_META = {
+  cpu:      { label: 'CPU',                fmt: v => `${v}%` },
+  wait:     { label: 'Waiting Tasks',      fmt: v => String(v) },
+  sqlmem:   { label: 'SQL Memory',         fmt: v => `${v}%` },
+  ple:      { label: 'PLE',                fmt: v => `${Math.round(v)}s` },
+  bufcache: { label: 'Buffer Cache Hit',   fmt: v => `${v}%` },
+  grants:   { label: 'Mem Grants Pending', fmt: v => String(v) },
+};
+
+function checkAlerts(connId, metrics) {
+  const conn = conns[connId]; if (!conn) return;
+  if (!conn.alertState) conn.alertState = {};
+
+  const checks = [
+    { key: 'cpu',      val: metrics.cpu_percent },
+    { key: 'wait',     val: metrics.waiting_tasks },
+    { key: 'sqlmem',   val: metrics.serverPerf?.sqlMemPct },
+    { key: 'ple',      val: metrics.serverPerf?.pleSec },
+    { key: 'bufcache', val: metrics.serverPerf?.bufferCacheHit },
+    { key: 'grants',   val: metrics.serverPerf?.memGrantsPending },
+  ];
+
+  for (const { key, val } of checks) {
+    const color    = metricStatusColor(key, val);
+    const level    = color === C_CRIT ? 'crit' : color === C_WARN ? 'warn' : null;
+    const prev     = conn.alertState[key];
+    const prevLevel= prev?.level ?? null;
+
+    if (level !== prevLevel) {
+      if (level) {
+        conn.alertState[key] = { level, val };
+        _fireNotification(connId, key, level, val);
+      } else {
+        delete conn.alertState[key];
+      }
+    } else if (level) {
+      conn.alertState[key].val = val;
+    }
+  }
+
+  renderAlertBanner();
+}
+
+function renderAlertBanner() {
+  const banner = document.getElementById('alert-banner'); if (!banner) return;
+  const chips = [];
+
+  for (const [cid, conn] of Object.entries(conns)) {
+    if (!conn.alertState) continue;
+    for (const [key, state] of Object.entries(conn.alertState)) {
+      if (!state) continue;
+      const meta   = ALERT_META[key]; if (!meta) continue;
+      const label  = escapeHtml(meta.label);
+      const valStr = escapeHtml(meta.fmt(state.val));
+      const cLabel = escapeHtml(conn.label || cid);
+      chips.push(
+        `<span class="alert-chip ${state.level}" title="${state.level === 'crit' ? 'Critical' : 'Warning'}: ${label}">` +
+        `${label} <strong>${valStr}</strong> · ${cLabel}` +
+        `<span class="adismiss" onclick="dismissAlert('${escapeHtml(cid)}','${escapeHtml(key)}')" title="Dismiss">✕</span>` +
+        `</span>`
+      );
+    }
+  }
+
+  if (chips.length) {
+    banner.style.display = 'flex';
+    const notifBtn = (typeof Notification !== 'undefined' && Notification.permission === 'default')
+      ? `<button class="alert-notif-btn" onclick="requestNotifPermission()">Enable desktop alerts</button>`
+      : '';
+    banner.innerHTML = chips.join('') + notifBtn;
+  } else {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+  }
+}
+
+function dismissAlert(connId, key) {
+  const conn = conns[connId]; if (!conn?.alertState) return;
+  delete conn.alertState[key];
+  renderAlertBanner();
+}
+
+function _fireNotification(connId, key, level, val) {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  if (!document.hidden) return;
+  const conn = conns[connId];
+  const meta = ALERT_META[key]; if (!meta) return;
+  const title = `${level === 'crit' ? '🔴 Critical' : '🟡 Warning'} — ${meta.label}`;
+  const body  = `${meta.fmt(val)} on ${conn?.label || connId}`;
+  try { new Notification(title, { body, tag: `${connId}-${key}` }); } catch(_) {}
+}
+
+function requestNotifPermission() {
+  if (typeof Notification === 'undefined') return;
+  Notification.requestPermission().then(() => renderAlertBanner());
+}
+
+// ─── PDF Health Report ────────────────────────────────────────────────────────
+function printReport(connId) {
+  const conn = conns[connId]; if (!conn) return;
+  const m = conn._lastMetrics;
+  if (!m) { alert('No data yet — wait for the first metrics update.'); return; }
+
+  const now  = new Date();
+  const ts   = now.toLocaleString();
+  const esc  = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fmt  = (v, d = 0) => v == null ? '—' : Number(v).toFixed(d);
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString();
+  const sp   = m.serverPerf || {};
+
+  const badge = lvl => {
+    const map = { ok:['badge-ok','OK'], warn:['badge-warn','WARN'], crit:['badge-crit','CRIT'] };
+    const [cls, txt] = map[lvl] || ['badge-none','—'];
+    return `<span class="badge ${cls}">${txt}</span>`;
+  };
+  const kpiLvl = (key, val) => {
+    const c = metricStatusColor(key, val);
+    return c === C_CRIT ? 'crit' : c === C_WARN ? 'warn' : val != null ? 'ok' : null;
+  };
+
+  // ── Sections ──────────────────────────────────────────────────────────────
+  const kpiHtml = [
+    { label:'CPU Usage',      val: fmt(m.cpu_percent)+'%',       lvl: kpiLvl('cpu',  m.cpu_percent) },
+    { label:'Waiting Tasks',  val: fmt(m.waiting_tasks),         lvl: kpiLvl('wait', m.waiting_tasks) },
+    { label:'DB I/O',         val: fmt(m.db_io_mb,1)+' MB/s',   lvl: null },
+    { label:'Batch Req/s',    val: fmtN(m.batch_requests),       lvl: null },
+    { label:'SQL Memory',     val: fmt(sp.sqlMemPct,1)+'%',      lvl: kpiLvl('sqlmem',   sp.sqlMemPct) },
+    { label:'Page Life Exp.', val: fmtN(sp.pleSec)+'s',          lvl: kpiLvl('ple',      sp.pleSec) },
+  ].map(k => {
+    const col = k.lvl === 'crit' ? '#dc2626' : k.lvl === 'warn' ? '#ea580c' : '#1e293b';
+    return `<div class="kpi-card"><div class="kpi-label">${esc(k.label)}</div><div class="kpi-val" style="color:${col};">${esc(k.val)}</div></div>`;
+  }).join('');
+
+  const alerts = Object.entries(conn.alertState || {}).filter(([,v]) => v);
+  const alertsHtml = alerts.length ? `<h2>⚠ Active Alerts</h2><table><thead><tr><th>Metric</th><th>Level</th><th>Value</th></tr></thead><tbody>${
+    alerts.map(([key, s]) => {
+      const meta = ALERT_META[key];
+      return `<tr class="${s.level==='crit'?'alert-row':''}"><td><strong>${esc(meta?.label||key)}</strong></td><td>${badge(s.level)}</td><td>${esc(meta?.fmt(s.val)||s.val)}</td></tr>`;
+    }).join('')}</tbody></table>` : '';
+
+  const memHtml = `<table><thead><tr><th>Metric</th><th>Value</th><th>Status</th></tr></thead><tbody>
+    <tr><td>SQL Memory Used / Target</td><td>${fmt(sp.sqlMemPct,1)}% &nbsp;(${fmt(sp.sqlTotalMemGb,1)} GB / ${fmt(sp.sqlTargetMemGb,1)} GB)</td><td>${badge(kpiLvl('sqlmem',sp.sqlMemPct))}</td></tr>
+    <tr><td>Page Life Expectancy (PLE)</td><td>${fmtN(sp.pleSec)} s</td><td>${badge(kpiLvl('ple',sp.pleSec))}</td></tr>
+    <tr><td>Buffer Cache Hit Ratio</td><td>${fmt(sp.bufferCacheHit,1)}%</td><td>${badge(kpiLvl('bufcache',sp.bufferCacheHit))}</td></tr>
+    <tr><td>Memory Grants Pending</td><td>${fmt(sp.memGrantsPending)}</td><td>${badge(kpiLvl('grants',sp.memGrantsPending))}</td></tr>
+    <tr><td>User Connections</td><td>${fmtN(sp.userConns)}</td><td></td></tr>
+    <tr><td>SQL Compilations / sec</td><td>${fmtN(sp.compilationsSec)}</td><td></td></tr>
+    <tr><td>SQL Re-Compilations / sec</td><td>${fmtN(sp.recompilationsSec)}</td><td></td></tr>
+  </tbody></table>`;
+
+  const waits = (m.resourceWaits || []).slice(0, 10);
+  const waitsHtml = waits.length ? `<table><thead><tr><th>Wait Type</th><th>Tasks</th><th>Total Wait (ms)</th><th>Max Wait (ms)</th><th>Signal Wait (ms)</th></tr></thead><tbody>${
+    waits.map(w => `<tr><td><code>${esc(w.wait_type)}</code></td><td>${fmtN(w.waiting_tasks_count)}</td><td>${fmtN(w.wait_time_ms)}</td><td>${fmtN(w.max_wait_time_ms)}</td><td>${fmtN(w.signal_wait_time_ms)}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="empty">No wait data.</p>';
+
+  const bkpLvl = last => { if (!last) return 'crit'; const d = (Date.now()-new Date(last))/(864e5); return d>7?'crit':d>1?'warn':'ok'; };
+  const backups = m.backupHealth || [];
+  const backupsHtml = backups.length ? `<table><thead><tr><th>Database</th><th>Recovery Model</th><th>Last Full</th><th>Last Diff</th><th>Last Log</th><th>Status</th></tr></thead><tbody>${
+    backups.map(b => `<tr><td>${esc(b.database_name)}</td><td>${esc(b.recovery_model_desc)}</td>
+      <td>${b.last_full ? new Date(b.last_full).toLocaleString() : '<span style="color:#dc2626">Never</span>'}</td>
+      <td>${b.last_diff ? new Date(b.last_diff).toLocaleString() : '—'}</td>
+      <td>${b.last_log  ? new Date(b.last_log).toLocaleString()  : '—'}</td>
+      <td>${badge(bkpLvl(b.last_full))}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="empty">No backup data.</p>';
+
+  const sizes = (m.dbSizes || []).slice(0, 15);
+  const sizesHtml = sizes.length ? `<h2>Database Sizes</h2><table><thead><tr><th>Database</th><th>Allocated</th><th>Volume Total</th><th>Volume Free</th><th>Drive Used %</th></tr></thead><tbody>${
+    sizes.map(d => {
+      const alloc = (d.allocated_bytes/(1024**3)).toFixed(2)+' GB';
+      const vol   = d.volume_total_bytes ? (d.volume_total_bytes/(1024**3)).toFixed(1)+' GB' : '—';
+      const free  = d.volume_available_bytes ? (d.volume_available_bytes/(1024**3)).toFixed(1)+' GB' : '—';
+      const usedP = d.volume_total_bytes ? ((1-d.volume_available_bytes/d.volume_total_bytes)*100).toFixed(1)+'%' : '—';
+      return `<tr><td>${esc(d.database_name)}</td><td>${alloc}</td><td>${vol}</td><td>${free}</td><td>${usedP}</td></tr>`;
+    }).join('')
+  }</tbody></table>` : '';
+
+  const queries = (m.recentExpensive || []).slice(0, 10);
+  const queriesHtml = queries.length ? `<table><thead><tr><th>Executions</th><th>Avg Elapsed (ms)</th><th>Avg CPU (ms)</th><th>Avg Reads</th><th>Last Executed</th><th style="min-width:200px;">Query</th></tr></thead><tbody>${
+    queries.map(q => {
+      const qt = (q.query_text || '').trim().slice(0, 160);
+      return `<tr><td>${fmtN(q.execution_count)}</td><td>${fmt(q.avg_elapsed_ms)}</td><td>${fmt(q.avg_cpu_ms)}</td><td>${fmt(q.avg_logical_reads)}</td>
+        <td style="white-space:nowrap;">${esc(q.last_executed||'—')}</td>
+        <td style="font-family:monospace;font-size:9px;word-break:break-all;">${esc(qt)}${qt.length<(q.query_text||'').trim().length?'…':''}</td></tr>`;
+    }).join('')
+  }</tbody></table>` : '<p class="empty">No query data.</p>';
+
+  const sessions = (m.processes||[]).filter(p => p.status !== 'sleeping').slice(0,25);
+  const sessionsHtml = sessions.length ? `<table><thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Database</th><th>Status</th><th>Wait Type</th><th>Elapsed (s)</th><th>CPU (ms)</th></tr></thead><tbody>${
+    sessions.map(s => `<tr><td>${esc(s.session_id)}</td><td>${esc(s.login_name)}</td><td>${esc(s.host_name)}</td><td>${esc(s.database_name)}</td><td>${esc(s.status)}</td><td>${esc(s.wait_type||'—')}</td><td>${esc(s.elapsed_sec)}</td><td>${fmtN(s.cpu_time)}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="empty">No active sessions.</p>';
+
+  // ── Assemble ──────────────────────────────────────────────────────────────
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>SQL Health Report — ${esc(conn.label||conn.server)} — ${now.toISOString().slice(0,10)}</title>
+<style>
+*{box-sizing:border-box;}
+body{font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;color:#1e293b;background:#fff;margin:0;padding:24px 28px;line-height:1.5;}
+h1{font-size:20px;font-weight:800;margin:0 0 2px;letter-spacing:-.02em;}
+h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin:22px 0 8px;border-bottom:1.5px solid #e2e8f0;padding-bottom:5px;}
+.meta{font-size:11px;color:#94a3b8;margin-bottom:20px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:4px;}
+.kpi-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;}
+.kpi-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-bottom:4px;}
+.kpi-val{font-size:22px;font-weight:700;line-height:1.2;}
+table{width:100%;border-collapse:collapse;margin-bottom:8px;}
+th{background:#f8fafc;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;padding:5px 8px;text-align:left;border-bottom:1.5px solid #e2e8f0;white-space:nowrap;}
+td{padding:4px 8px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#334155;vertical-align:top;}
+tr:nth-child(even) td{background:#fafbfc;}
+.badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:9px;font-weight:700;letter-spacing:.04em;}
+.badge-ok{background:#dcfce7;color:#166534;}
+.badge-warn{background:#fef9c3;color:#854d0e;}
+.badge-crit{background:#fee2e2;color:#991b1b;}
+.badge-none{background:#f1f5f9;color:#64748b;}
+.alert-row td{background:#fff5f5!important;color:#991b1b;font-weight:600;}
+code{font-family:'Cascadia Code',Consolas,monospace;font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px;}
+.empty{color:#94a3b8;font-style:italic;font-size:11px;margin:4px 0 12px;}
+.footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;}
+@media print{@page{size:A4;margin:12mm 14mm;}body{padding:0;}table,.kpi-grid{break-inside:avoid;}h2{break-before:auto;}}
+</style></head><body>
+<h1>SQL Server Health Report</h1>
+<div class="meta">${esc(conn.label||conn.server)} &nbsp;·&nbsp; ${esc(conn.server)} &nbsp;·&nbsp; Generated ${ts}</div>
+<h2>Executive Summary</h2>
+<div class="kpi-grid">${kpiHtml}</div>
+${alertsHtml}
+<h2>Memory Health</h2>${memHtml}
+<h2>Top Resource Waits (Cumulative, Top 10)</h2>${waitsHtml}
+<h2>Backup Health</h2>${backupsHtml}
+${sizesHtml}
+<h2>Recent Expensive Queries — Last Hour (Top 10)</h2>${queriesHtml}
+<h2>Active Sessions (Non-sleeping, Top 25)</h2>${sessionsHtml}
+<div class="footer">SQL Activity Monitor &nbsp;·&nbsp; Snapshot generated ${ts} &nbsp;·&nbsp; Not a point-in-time guarantee — data reflects last 2-second poll cycle.</div>
+</body></html>`;
+
+  const w = window.open('', '_blank', 'width=960,height=720');
+  if (!w) { alert('Pop-up blocked — allow pop-ups for this page and try again.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.addEventListener('load', () => setTimeout(() => w.print(), 350));
+}
+
+function exportTableCSV(connId, tableId) {
+  const conn = conns[connId]; if (!conn) return;
+  const data = conn.tableData[tableId]; if (!data?.length) return;
+  const keys = Object.keys(data[0]);
+  const escape = v => { const s = v == null ? '' : String(v); return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  const csv  = [keys.join(','), ...data.map(r => keys.map(k => escape(r[k])).join(','))].join('\n');
+  const url  = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a    = Object.assign(document.createElement('a'), { href: url, download: `${tableId}_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.csv` });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const FILTER_FIELDS = {
+  proc:   ['login_name','host_name','database_name','status','wait_type','last_query'],
+  waits:  ['wait_type'],
+  fileio: ['database_name','file_name','file_type'],
+};
+
 const DEFAULT_SORT = {
   proc:     { col:'cpu_time',       dir:'desc' },
   waits:    { col:'wait_time_ms',   dir:'desc' },
@@ -596,7 +933,15 @@ function makeChart(canvasId, color, yMax) {
 }
 
 // ─── Dashboard template ───────────────────────────────────────────────────────
-function sectionHtml(connId, sId, title) {
+function sectionHtml(connId, sId, title, filterPlaceholder) {
+  const FI = `font-size:11px;border:1.5px solid var(--scroll-thumb);border-radius:7px;padding:4px 10px;width:220px;outline:none;background:var(--section-hover);color:var(--body-text);`;
+  const filterRow = filterPlaceholder ? `
+        <div class="flex items-center px-5 py-2" style="border-bottom:1px solid var(--divider);">
+          <input type="search" id="filter-${sId}-${connId}" placeholder="${filterPlaceholder}"
+                 oninput="onTableFilter('${connId}','${sId}',this.value)"
+                 style="${FI}"
+                 onfocus="this.style.borderColor='var(--sort-active)'" onblur="this.style.borderColor='var(--scroll-thumb)'"/>
+        </div>` : '';
   return `
     <div class="mc overflow-hidden">
       <button class="section-toggle w-full flex items-center justify-between px-5 py-3 text-left"
@@ -608,8 +953,13 @@ function sectionHtml(connId, sId, title) {
           <span class="text-base font-bold text-slate-700">${title}</span>
           <span class="text-xs px-2 py-0.5 rounded font-semibold tabular-nums" style="background:var(--badge-bg);color:var(--badge-text);" id="${sId}-count-${connId}">0</span>
         </div>
+        <span role="button" tabindex="0"
+              onclick="event.stopPropagation();exportTableCSV('${connId}','${sId}')"
+              title="Export as CSV"
+              class="export-csv-btn"
+              onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.55'">CSV ↓</span>
       </button>
-      <div class="section-body" id="body-${sId}-${connId}">
+      <div class="section-body" id="body-${sId}-${connId}">${filterRow}
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-slate-700">
             <thead id="${sId}-thead-${connId}" class="bg-slate-50/80 text-slate-500"></thead>
@@ -626,7 +976,7 @@ function dashboardTemplate(id, label, server) {
     <div class="mc flex flex-col" style="padding:20px 20px 16px;">
       <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">${title}</div>
       <div class="flex items-end justify-between mb-4">
-        <div class="font-bold leading-none tabular-nums" style="font-size:38px;color:${valColor};" id="${valId}">--</div>
+        <div class="sk sk-xl font-bold leading-none tabular-nums" style="font-size:38px;color:${valColor};" id="${valId}">--</div>
         <div style="font-size:11px;color:#94a3b8;text-align:right;line-height:1.4;max-width:110px;">${sub}</div>
       </div>
       <div class="chart-wrap flex-1"><canvas id="${chartId}"></canvas></div>
@@ -639,7 +989,7 @@ function dashboardTemplate(id, label, server) {
   const statTile = (valId, title, sub, color) => `
     <div class="mc p-5">
       <div class="text-[12px] font-semibold text-slate-400 uppercase tracking-wide mb-2">${title}</div>
-      <div class="font-bold tabular-nums leading-none mb-2" style="font-size:32px;color:${color};" id="${valId}">--</div>
+      <div class="sk sk-wide font-bold tabular-nums leading-none mb-2" style="font-size:32px;color:${color};" id="${valId}">--</div>
       <div class="text-xs text-slate-400">${sub}</div>
     </div>`;
 
@@ -650,9 +1000,9 @@ function dashboardTemplate(id, label, server) {
   // KPI summary card builder
   const kpiCard = (kpiId, label, color, onclick) => `
     <div class="mc mc-click flex flex-col gap-2.5" id="kpi-card-${kpiId}-${id}" onclick="${onclick}"
-         style="padding:16px 18px;border-left:3px solid ${color};">
+         style="padding:16px 18px;">
       <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">${label}</div>
-      <div class="font-bold tabular-nums leading-none" style="font-size:24px;color:${color};" id="kpi-${kpiId}-${id}">--</div>
+      <div class="sk font-bold tabular-nums leading-none" style="font-size:24px;color:${color};" id="kpi-${kpiId}-${id}">--</div>
     </div>`;
 
   return `
@@ -661,11 +1011,14 @@ function dashboardTemplate(id, label, server) {
       <span class="w-2.5 h-2.5 rounded-full dot-live flex-shrink-0"></span>
       <span style="font-size:16px;font-weight:700;color:var(--body-text);">${escapeHtml(label)}</span>
       <span class="text-xs text-slate-400 font-mono">${escapeHtml(server)}</span>
-      <span class="ml-auto text-xs font-semibold tabular-nums transition-colors" style="font-size:11px;" id="last-updated-${id}"></span>
+      <span class="ml-auto text-xs font-semibold tabular-nums transition-colors" id="last-updated-${id}"></span>
+      <button onclick="printReport('${id}')" title="Download PDF Health Report"
+              style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px;border:1px solid var(--divider);background:var(--section-hover);color:var(--body-text);cursor:pointer;flex-shrink:0;margin-left:8px;"
+              onmouseover="this.style.borderColor='var(--sort-active)'" onmouseout="this.style.borderColor='var(--divider)'">↓ Report</button>
     </div>
 
     <!-- KPI Summary -->
-    <div class="grid grid-cols-6 gap-5 mb-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5 mb-6">
       ${kpiCard('cpu',     'CPU Usage',      'var(--val-cpu)',   `document.getElementById('chart-cpu-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
       ${kpiCard('wait',    'Waiting Tasks',  'var(--val-wait)',  `document.getElementById('chart-wait-${id}')?.scrollIntoView({behavior:'smooth',block:'center'})`)}
       ${kpiCard('sessions','Sessions',       'var(--val-batch)', `openAllSessionsDetail('${id}')`)}
@@ -675,7 +1028,7 @@ function dashboardTemplate(id, label, server) {
     </div>
 
     <!-- Row 1: Core performance charts -->
-    <div class="grid grid-cols-4 gap-6 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
       ${chartCard('cpu',   '% Processor Time',  'SQL CPU utilization')}
       ${chartCard('wait',  'Waiting Tasks',      'Suspended / waiting requests')}
       ${chartCard('io',    'Database I/O',       'MB/s read + write')}
@@ -683,15 +1036,15 @@ function dashboardTemplate(id, label, server) {
     </div>
 
     <!-- Row 2: Network + Compilations charts -->
-    <div class="grid grid-cols-2 gap-6 mb-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
       ${cc(`val-netmb-${id}`,        'Network I/O',          'MB/s SQL connections',        'var(--val-io)',    `chart-netmb-${id}`)}
       ${cc(`val-compilations-${id}`, 'Compilations/sec',     'SQL compilations per second', 'var(--val-cpu)',   `chart-compilations-${id}`)}
     </div>
 
     <!-- Row 3: SQL Agent Jobs (8/12) + Connected Sessions (4/12) -->
-    <div class="grid grid-cols-12 gap-6 mb-6">
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
       <!-- SQL Agent Jobs -->
-      <div class="col-span-8 mc flex flex-col" style="min-height:280px;">
+      <div class="col-span-1 xl:col-span-8 mc flex flex-col" style="min-height:280px;">
         <!-- Header: title + badges + search + view-all -->
         <div class="flex items-center gap-2 px-5 py-3 border-b border-slate-100 flex-shrink-0">
           <span style="color:var(--val-batch);">${GEAR_SVG}</span>
@@ -714,14 +1067,16 @@ function dashboardTemplate(id, label, server) {
           <table class="w-full" style="border-collapse:collapse;font-size:11px;">
             <thead><tr id="jobs-thead-${id}"></tr></thead>
             <tbody id="jobs-inline-tbody-${id}">
-              <tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-style:italic;font-size:12px;">Loading…</td></tr>
+              <tr class="sk-row"><td colspan="8" style="padding:5px 16px;"><div class="sk sk-xl sk-block" style="width:88%;"></div></td></tr>
+              <tr class="sk-row"><td colspan="8" style="padding:5px 16px;"><div class="sk sk-block" style="width:65%;"></div></td></tr>
+              <tr class="sk-row"><td colspan="8" style="padding:5px 16px;"><div class="sk sk-block" style="width:72%;"></div></td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <!-- Connected Sessions -->
-      <div class="col-span-4 mc flex flex-col" style="min-height:280px;">
+      <div class="col-span-1 xl:col-span-4 mc flex flex-col" style="min-height:280px;">
         <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100 flex-shrink-0">
           <div class="flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -733,7 +1088,11 @@ function dashboardTemplate(id, label, server) {
           </div>
         </div>
         <div class="flex-1 overflow-y-auto" id="sessions-list-${id}" style="min-height:0;">
-          <span class="text-xs text-slate-400 italic px-5 py-3 block">Waiting…</span>
+          <div class="px-5 py-3 space-y-2.5">
+            <div class="sk sk-block sk-xl" style="width:80%;"></div>
+            <div class="sk sk-block" style="width:60%;"></div>
+            <div class="sk sk-block" style="width:70%;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -744,12 +1103,12 @@ function dashboardTemplate(id, label, server) {
         <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
         <span class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Memory Health</span>
       </div>
-      <div class="grid gap-6" style="grid-template-columns:2fr 3fr;">
+      <div class="memh-grid">
         <!-- Left: Committed vs Target -->
         <div class="flex flex-col justify-center gap-2">
           <div class="flex items-end justify-between">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Committed vs Target</span>
-            <span class="font-bold tabular-nums leading-none" style="font-size:24px;" id="memh-pct-${id}">--%</span>
+            <span class="sk font-bold tabular-nums leading-none" style="font-size:24px;" id="memh-pct-${id}">--%</span>
           </div>
           <div style="height:10px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
             <div id="memh-bar-${id}" style="height:100%;border-radius:99px;width:0%;transition:width 0.5s ease,background 0.3s;background:#3b82f6;"></div>
@@ -760,14 +1119,14 @@ function dashboardTemplate(id, label, server) {
           </div>
         </div>
         <!-- Right: PLE / Buffer Cache / Grants Pending -->
-        <div class="flex flex-col justify-center gap-3 pl-5" style="border-left:1px solid #f1f5f9;">
+        <div class="memh-right flex flex-col justify-center gap-3">
           <!-- PLE -->
           <div>
             <div class="flex items-center justify-between mb-1">
               <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Page Life Expectancy</span>
               <div class="flex items-center gap-2">
-                <span class="font-bold tabular-nums text-sm" id="memh-ple-val-${id}">--</span>
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-ple-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+                <span class="sk font-bold tabular-nums text-sm" id="memh-ple-val-${id}">--</span>
+                <span class="sk font-bold text-[10px] px-1.5 py-0.5 rounded" id="memh-ple-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
               </div>
             </div>
             <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
@@ -779,8 +1138,8 @@ function dashboardTemplate(id, label, server) {
             <div class="flex items-center justify-between mb-1">
               <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Buffer Cache Hit Ratio</span>
               <div class="flex items-center gap-2">
-                <span class="font-bold tabular-nums text-sm" id="memh-bufcache-val-${id}">--</span>
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-bufcache-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+                <span class="sk font-bold tabular-nums text-sm" id="memh-bufcache-val-${id}">--</span>
+                <span class="sk font-bold text-[10px] px-1.5 py-0.5 rounded" id="memh-bufcache-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
               </div>
             </div>
             <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
@@ -792,8 +1151,8 @@ function dashboardTemplate(id, label, server) {
             <div class="flex items-center justify-between mb-1">
               <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Memory Grants Pending</span>
               <div class="flex items-center gap-2">
-                <span class="font-bold tabular-nums text-sm" id="memh-grants-val-${id}">--</span>
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" id="memh-grants-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
+                <span class="sk font-bold tabular-nums text-sm" id="memh-grants-val-${id}">--</span>
+                <span class="sk font-bold text-[10px] px-1.5 py-0.5 rounded" id="memh-grants-badge-${id}" style="background:#f1f5f9;color:#64748b;">--</span>
               </div>
             </div>
             <div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
@@ -818,7 +1177,10 @@ function dashboardTemplate(id, label, server) {
         </button>
         <div class="section-body" id="body-dbsizes-${id}">
           <div class="p-5" id="dbsizes-grid-${id}">
-            <span class="text-slate-400 italic text-xs">Loading…</span>
+            <div class="space-y-2">
+              <div class="sk sk-block sk-xl" style="width:55%;"></div>
+              <div class="sk sk-block" style="width:40%;"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -839,6 +1201,12 @@ function dashboardTemplate(id, label, server) {
           </button>
         </button>
         <div class="section-body" id="body-proc-${id}">
+          <div class="flex items-center px-5 py-2" style="border-bottom:1px solid var(--divider);">
+            <input type="search" id="filter-proc-${id}" placeholder="Filter by login, host, database, status…"
+                   oninput="onTableFilter('${id}','proc',this.value)"
+                   style="font-size:11px;border:1.5px solid var(--scroll-thumb);border-radius:7px;padding:4px 10px;width:280px;outline:none;background:var(--section-hover);color:var(--body-text);"
+                   onfocus="this.style.borderColor='var(--sort-active)'" onblur="this.style.borderColor='var(--scroll-thumb)'"/>
+          </div>
           <div class="overflow-x-auto">
             <table class="w-full text-xs text-slate-700">
               <thead id="proc-thead-${id}" class="bg-slate-50/80 text-slate-500"></thead>
@@ -847,8 +1215,8 @@ function dashboardTemplate(id, label, server) {
           </div>
         </div>
       </div>
-      ${sectionHtml(id,'waits',     'Resource Waits')}
-      ${sectionHtml(id,'fileio',    'Data File I/O')}
+      ${sectionHtml(id,'waits',  'Resource Waits',  'Filter by wait type…')}
+      ${sectionHtml(id,'fileio', 'Data File I/O',   'Filter by database or file…')}
       ${sectionHtml(id,'recent',    'Recent Expensive Queries')}
       ${sectionHtml(id,'active',    'Active Expensive Queries')}
       ${sectionHtml(id,'blocking',  'Blocking Chains')}
@@ -907,6 +1275,8 @@ function setupConnectionUI(id, label, server, color, appIntent) {
                netMb:makeChartData(), compilations:makeChartData() },
     charts: null,
     tableData: { proc:[], waits:[], fileio:[], recent:[], active:[], blocking:[], deadlocks:[], jobs:[] },
+    tableFilter: { proc:'', waits:'', fileio:'' },
+    alertState: {},
     sortState: JSON.parse(JSON.stringify(DEFAULT_SORT)),
     jobsSort: { col: null, dir: 'asc' },
     jobsFilter: 'all',
@@ -922,6 +1292,7 @@ function setupConnectionUI(id, label, server, color, appIntent) {
   const div     = document.createElement('div');
   div.id        = `dash-${id}`;
   div.className = 'hidden';
+  div.dataset.loading = '1';
   div.innerHTML = dashboardTemplate(id, label, server);
   container.appendChild(div);
   restoreSectionStates(id);
@@ -954,6 +1325,7 @@ async function disconnectConn(id, e) {
   if (conn.charts) for (const c of Object.values(conn.charts)) if (c) c.destroy();
   document.getElementById(`dash-${id}`)?.remove();
   document.getElementById(`tab-${id}`)?.remove();
+  removeSavedConn(id);
   delete conns[id];
 
   const remaining = Object.keys(conns);
@@ -1129,7 +1501,21 @@ function renderTable(connId, tableId) {
     if(countEl) countEl.textContent='0';
     return;
   }
-  const sorted = sortData(data,col,dir);
+
+  const fTerm = (conn.tableFilter?.[tableId] || '').toLowerCase();
+  const fFields = FILTER_FIELDS[tableId];
+  const filtered = fTerm && fFields
+    ? data.filter(row => fFields.some(f => String(row[f]||'').toLowerCase().includes(fTerm)))
+    : data;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${cols.length}" class="${EMPTY}">No matches</td></tr>`;
+    if (countEl) countEl.textContent = `0/${data.length}`;
+    return;
+  }
+  if (countEl) countEl.textContent = fTerm ? `${filtered.length}/${data.length}` : data.length;
+
+  const sorted = sortData(filtered,col,dir);
   tbody.innerHTML = sorted.map((row,i) => {
     const cells = cols.map(c=>`<td class="${TD}">${fmtCell(row[c.key],c.type)}</td>`).join('');
     const killBtn = (tableId==='proc' && String(row.status).toLowerCase()==='sleeping')
@@ -1140,9 +1526,8 @@ function renderTable(connId, tableId) {
       : tableId==='deadlocks' ? ' style="background:#fff7ed;"' : '';
     return `<tr class="dr ${i%2&&tableId!=='blocking'&&tableId!=='deadlocks'?'dr-odd':''}"${rowStyle}>${cells}${killBtn}</tr>`;
   }).join('');
-  if(countEl) {
-    countEl.textContent = data.length;
-    // Red badge when blocking/deadlocks have entries
+  if (countEl) {
+    // Red badge for blocking/deadlocks
     if ((tableId==='blocking'||tableId==='deadlocks') && data.length > 0) {
       countEl.style.background = 'rgba(220,38,38,.1)';
       countEl.style.color      = 'var(--c-crit)';
@@ -1586,7 +1971,7 @@ function renderJobsCard(connId, jobs) {
     const msg = jobs.length === 0 ? 'No jobs found — user may lack msdb read permission' : 'No jobs match filter';
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;font-style:italic;font-size:12px;">${msg}</td></tr>`;
   } else {
-    const TDs = 'padding:5px 16px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+    const TDs = 'padding:5px 16px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:12px;color:#334155;';
     tbody.innerHTML = filtered.map(j => {
       const isRunning = j.status === 'Running';
       const isFailed  = j.status === 'Failed';
@@ -1648,7 +2033,7 @@ function renderJobsModalTable(connId) {
     return;
   }
 
-  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:12px;color:#334155;';
   tbody.innerHTML = jobs.map(j => {
     const isRunning = j.status === 'Running';
     const canStart  = !isRunning && j.enabled === 1;
@@ -1769,7 +2154,7 @@ function refreshSessionDetail() {
         (r.host_name||'(unknown)') === _sdHost && (r.login_name||'(unknown)') === _sdLogin
       );
   const tbody = document.getElementById('sd-tbody');
-  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:11px;color:#334155;';
+  const TDs = 'padding:5px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-size:12px;color:#334155;';
   const fmtStatus = s => {
     const c = String(s).toLowerCase();
     const bg = c==='running'?'#d4ead0':c==='suspended'?'#f5e6c0':c==='sleeping'?'#ece9e0':'#e2e8f0';
@@ -1806,10 +2191,19 @@ function refreshSessionDetail() {
   }).join('');
 }
 
+function _killDetail(proc) {
+  const login   = escapeHtml(proc.login_name || '?');
+  const host    = escapeHtml(proc.host_name  || '?');
+  const db      = proc.database_name ? ` · <em>${escapeHtml(proc.database_name)}</em>` : '';
+  const sec     = proc.elapsed_sec;
+  const elapsed = sec != null ? ` · ${sec >= 3600 ? Math.floor(sec/3600)+'h '+(Math.floor(sec/60)%60)+'m' : sec >= 60 ? Math.floor(sec/60)+'m '+Math.floor(sec%60)+'s' : sec+'s'}` : '';
+  return `<br><span style="color:#94a3b8;font-size:12px;">${login} @ ${host}${db}${elapsed}</span>`;
+}
+
 async function killSessionFromDetail(connId, sessionId) {
   const conn = conns[connId];
   const proc = (conn?.tableData?.proc || []).find(r => r.session_id === sessionId);
-  const detail = proc ? `<br><span style="color:#94a3b8;font-size:12px;">${escapeHtml(proc.login_name||'')} @ ${escapeHtml(proc.host_name||'')}</span>` : '';
+  const detail = proc ? _killDetail(proc) : '';
   const ok = await showDialog({
     title: `Kill Session ${sessionId}`,
     message: `Terminate sleeping session <strong>${sessionId}</strong>?${detail}<br><br>This cannot be undone.`,
@@ -1829,7 +2223,7 @@ async function killSessionFromDetail(connId, sessionId) {
 async function killSession(connId, sessionId) {
   const conn = conns[connId];
   const proc = (conn?.tableData?.proc || []).find(r => r.session_id === sessionId);
-  const detail = proc ? `<br><span style="color:#94a3b8;font-size:12px;">${escapeHtml(proc.login_name||'')} @ ${escapeHtml(proc.host_name||'')}</span>` : '';
+  const detail = proc ? _killDetail(proc) : '';
   const ok = await showDialog({
     title: `Kill Session ${sessionId}`,
     message: `Terminate sleeping session <strong>${sessionId}</strong>?${detail}<br><br>This cannot be undone.`,
@@ -1848,6 +2242,13 @@ async function killSession(connId, sessionId) {
   } catch (err) {
     showDialog({ title:'Kill Failed', message: escapeHtml(err.message), confirmText:'OK', hideCancel:true, type:'danger' });
   }
+}
+
+function onTableFilter(connId, tableId, val) {
+  const conn = conns[connId]; if (!conn) return;
+  if (!conn.tableFilter) conn.tableFilter = {};
+  conn.tableFilter[tableId] = val;
+  renderTable(connId, tableId);
 }
 
 function sortBy(connId, tableId, col) {
@@ -2064,6 +2465,17 @@ function showConnectModal() {
 
 function hideConnectModal() {
   document.getElementById('connect-modal').classList.add('hidden');
+  if (_reconnectMode) {
+    _reconnectMode = false;
+    _pendingSqlReconnect = [];
+    document.getElementById('connect-btn').textContent = 'Connect';
+    const sub = document.querySelector('#connect-card .text-slate-400.text-xs');
+    if (sub) sub.textContent = 'Add a new monitored instance';
+    if (Object.keys(conns).length === 0) {
+      document.getElementById('empty-state-title').textContent = 'No Active Connections';
+      document.getElementById('empty-state-msg').textContent   = 'Connect to a SQL Server instance to start monitoring';
+    }
+  }
 }
 
 document.getElementById('connect-modal').addEventListener('click', e => {
@@ -2101,11 +2513,26 @@ async function handleConnect(e) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Connection failed.');
     setupConnectionUI(data.id, data.label, data.server, data.color, data.appIntent);
+    upsertSavedConn(data.id, {
+      server: body.server, label: body.label, database: body.database,
+      authType: body.authType, user: body.user || '',
+      encrypt: body.encrypt, trustServerCert: body.trustServerCert,
+      hostNameInCertificate: body.hostNameInCertificate || '',
+      appIntent: body.appIntent, color: body.color,
+    });
+    if (_reconnectMode) {
+      _pendingSqlReconnect.shift();
+      _reconnectMode = false;
+      document.getElementById('connect-btn').textContent = 'Connect';
+      const sub = document.querySelector('#connect-card .text-slate-400.text-xs');
+      if (sub) sub.textContent = 'Add a new monitored instance';
+    }
     hideConnectModal();
     document.getElementById('connect-form').reset();
     setAuthType('windows');
     setAppIntent('ReadWrite');
     onEncryptChange('false');
+    if (_pendingSqlReconnect.length > 0) setTimeout(_promptNextSqlReconnect, 200);
   } catch(err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -2113,6 +2540,67 @@ async function handleConnect(e) {
     btn.disabled    = false;
     btn.textContent = 'Connect';
   }
+}
+
+// ─── Connection restore ───────────────────────────────────────────────────────
+async function restoreSavedConns() {
+  const saved = getSavedConns();
+  if (!saved.length) { showConnectModal(); return; }
+
+  const winConns = saved.filter(c => (c.authType || 'windows') === 'windows');
+  const sqlConns = saved.filter(c => c.authType === 'sql');
+
+  const esTitle = document.getElementById('empty-state-title');
+  const esMsg   = document.getElementById('empty-state-msg');
+  if (winConns.length) {
+    esTitle.textContent = 'Reconnecting…';
+    esMsg.textContent   = `Restoring ${saved.length} saved connection${saved.length !== 1 ? 's' : ''}`;
+  }
+
+  let reconnected = 0;
+  for (const cfg of winConns) {
+    try {
+      const res  = await fetch('/api/connect', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
+      const data = await res.json();
+      if (res.ok) { setupConnectionUI(data.id, data.label, data.server, data.color, data.appIntent); reconnected++; }
+      else removeSavedConn(cfg._clientId);
+    } catch { removeSavedConn(cfg._clientId); }
+  }
+
+  if (sqlConns.length > 0) {
+    _pendingSqlReconnect = [...sqlConns];
+    _promptNextSqlReconnect();
+  } else if (reconnected === 0) {
+    esTitle.textContent = 'No Active Connections';
+    esMsg.textContent   = 'Connect to a SQL Server instance to start monitoring';
+    showConnectModal();
+  }
+}
+
+function _promptNextSqlReconnect() {
+  if (!_pendingSqlReconnect.length) return;
+  const cfg = _pendingSqlReconnect[0];
+  document.getElementById('f-server').value = cfg.server  || '';
+  document.getElementById('f-label').value  = cfg.label   || '';
+  document.getElementById('f-db').value     = cfg.database || '';
+  document.getElementById('f-user').value   = cfg.user    || '';
+  document.getElementById('f-pass').value   = '';
+  setAuthType('sql');
+  setAppIntent(cfg.appIntent || 'ReadWrite');
+  document.getElementById('f-encrypt').value = cfg.encrypt || 'false';
+  onEncryptChange(cfg.encrypt || 'false');
+  document.getElementById('f-trust-cert').checked = cfg.trustServerCert !== false;
+  if (cfg.hostNameInCertificate) document.getElementById('f-hostname').value = cfg.hostNameInCertificate;
+  selectedColor = cfg.color || '#3b82f6';
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === selectedColor));
+  const sub = document.querySelector('#connect-card .text-slate-400.text-xs');
+  if (sub) sub.textContent = `Re-enter password to reconnect`;
+  document.getElementById('connect-btn').textContent = `Reconnect to ${cfg.label || cfg.server}`;
+  _reconnectMode = true;
+  document.getElementById('connect-error').classList.add('hidden');
+  switchModalTab('login');
+  document.getElementById('connect-modal').classList.remove('hidden');
+  document.getElementById('f-pass').focus();
 }
 
 // ─── Last-updated tick ────────────────────────────────────────────────────────
@@ -2130,6 +2618,11 @@ setInterval(() => {
     else               { txt = Math.floor(sec/60) + 'm ago'; color = '#ef4444'; }
     el.textContent = txt;
     el.style.color = color;
+
+    const tabDot = document.querySelector(`#tab-${id} .dot-live, #tab-${id} .dot-warn, #tab-${id} .dot-dead`);
+    if (tabDot) {
+      tabDot.className = `w-2 h-2 rounded-full ${sec < 5 ? 'dot-live' : sec < 15 ? 'dot-warn' : 'dot-dead'}`;
+    }
   }
 }, 1000);
 
@@ -2148,6 +2641,7 @@ socket.on('disconnect', () => {
 socket.on('metrics', (m) => {
   const { connId, ...metrics } = m;
   const conn = conns[connId]; if (!conn) return;
+  document.getElementById(`dash-${connId}`)?.removeAttribute('data-loading');
 
   updateCharts(connId, metrics);
   conn.tableData.proc      = metrics.processes       || [];
@@ -2163,6 +2657,8 @@ socket.on('metrics', (m) => {
   renderConnectedSessions(connId, metrics.processes || []);
   renderJobsCard(connId, metrics.jobs || []);
   if (_sdConnId === connId) refreshSessionDetail();
+  checkAlerts(connId, metrics);
+  conn._lastMetrics = metrics;
 
   if (conns[connId]) conns[connId]._lastUpdate = Date.now();
 
@@ -2181,7 +2677,6 @@ socket.on('poll_error', ({connId, message}) => {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 applyPalette(currentPalette);
-document.getElementById('palette-name-display').textContent = currentPalette;
 
 window.addEventListener('DOMContentLoaded', async () => {
   initColorSwatches();
@@ -2197,16 +2692,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     setAuthType(cfg.defaultAuthType || 'windows');
   } catch {}
 
-  // Reconnect to any existing server connections
+  // Reconnect to any existing server connections (server in-memory), else restore from localStorage
   try {
     const existing = await fetch('/api/connections').then(r=>r.json());
     if (existing.length > 0) {
       for (const { id, label, server, color, appIntent } of existing) setupConnectionUI(id, label, server, color, appIntent);
     } else {
-      showConnectModal();
+      await restoreSavedConns();
     }
   } catch {
-    showConnectModal();
+    await restoreSavedConns();
   }
 });
 /* ── Custom dialog ── */
@@ -2252,7 +2747,7 @@ function _dialogClose(result) {
     </div>
     <!-- Table -->
     <div style="overflow:auto;flex:1;">
-      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead id="sd-thead">
           <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
             <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;"></th>
@@ -2300,7 +2795,7 @@ function _dialogClose(result) {
     </div>
     <!-- Table -->
     <div style="overflow:auto;flex:1;">
-      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;position:sticky;top:0;z-index:1;">
             <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Job Name</th>
