@@ -11,12 +11,18 @@ const { MemoryScanStore }   = require('./server/indexScanStore.js')
 const { runScan, calcProgressPct, paginateResults, SCAN_TTL_MS } = require('./server/indexScanOrchestrator.js')
 
 const PORT    = parseInt(process.env.PORT)              || 3000;
+// Bind localhost-only by default: every API endpoint is unauthenticated, so
+// exposing beyond loopback allows anyone on the network to proxy SQL
+// connections, kill sessions, and control Agent jobs. Set HOST=0.0.0.0
+// explicitly (behind a trusted network/reverse proxy) to expose.
+const HOST    = process.env.HOST                         || '127.0.0.1';
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS)  || 2000;
 
 const app        = express();
 const httpServer = createServer(app);
 const io         = new Server(httpServer);
 
+app.disable('x-powered-by');
 app.use(express.json());
 const distDir = path.join(__dirname, 'dist')
 const publicDir = path.join(__dirname, 'public')
@@ -962,9 +968,14 @@ app.get('/api/connections/:id/whoIsActive', async (req, res) => {
 });
 
 app.post('/api/connections/:id/jobs/:action', async (req, res) => {
+  if (process.env.ALLOW_JOB_CONTROL !== 'true') {
+    return res.status(403).json({ error: 'Job control disabled. Set ALLOW_JOB_CONTROL=true in .env to enable.' });
+  }
   const conn = requireConn(req, res);
   if (!conn) return;
   const { action } = req.params;
+  if (action !== 'start' && action !== 'stop')
+    return res.status(400).json({ error: 'Invalid action. Must be start or stop.' });
   const { jobName } = req.body;
   if (!jobName || typeof jobName !== 'string' || jobName.length > 256)
     return res.status(400).json({ error: 'Invalid job name.' });
@@ -1162,11 +1173,15 @@ app.get('*', (req, res) => {
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 io.on('connection', socket => {
-  socket.on('subscribe',   connId => socket.join(`conn:${connId}`));
-  socket.on('unsubscribe', connId => socket.leave(`conn:${connId}`));
+  socket.on('subscribe',   connId => {
+    if (typeof connId === 'string' && UUID_RE.test(connId)) socket.join(`conn:${connId}`);
+  });
+  socket.on('unsubscribe', connId => {
+    if (typeof connId === 'string' && UUID_RE.test(connId)) socket.leave(`conn:${connId}`);
+  });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-httpServer.listen(PORT, () => {
-  console.log(`\nSQL Activity Monitor → http://localhost:${PORT}\n`);
+httpServer.listen(PORT, HOST, () => {
+  console.log(`\nSQL Activity Monitor → http://localhost:${PORT} (bound to ${HOST})\n`);
 });
