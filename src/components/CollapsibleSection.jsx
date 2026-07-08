@@ -1,9 +1,9 @@
 import React from 'react'
-import { useApp } from '../context/AppContext'
+import { useConnections } from '../context/ConnectionContext'
 
 export default function CollapsibleSection({ connId, sectionId, title, children, badge, extra }) {
-  const { state, dispatch } = useApp()
-  const conn = state.connections[connId]
+  const { connections, dispatch } = useConnections()
+  const conn = connections[connId]
   const isCollapsed = conn ? conn.collapsedSections.has(sectionId) : false
 
   function toggle() {

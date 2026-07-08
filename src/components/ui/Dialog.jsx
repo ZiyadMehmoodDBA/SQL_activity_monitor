@@ -19,6 +19,7 @@ export function DialogContent({ children, className, ...props }) {
     <RadixDialog.Portal>
       <RadixDialog.Overlay className="fixed inset-0 z-50" style={{ background: 'rgba(0,0,0,0.82)' }} />
       <RadixDialog.Content
+        aria-describedby={undefined}
         className={cn(
           'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
           'w-full max-w-md rounded-2xl focus:outline-none',
@@ -58,11 +59,11 @@ export function DialogBody({ children, className }) {
   )
 }
 
-export function DialogTitle({ children, className }) {
+export function DialogTitle({ children, className, style }) {
   return (
     <RadixDialog.Title
       className={cn('text-base font-bold', className)}
-      style={{ color: 'var(--text-primary)' }}
+      style={{ color: 'var(--text-primary)', ...style }}
     >
       {children}
     </RadixDialog.Title>

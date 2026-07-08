@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogClose } from './ui/Dialog'
+import { Dialog, DialogContent, DialogClose, DialogTitle } from './ui/Dialog'
 import { X } from 'lucide-react'
+import { useConnections } from '../context/ConnectionContext'
 
 // ── Palette-aware design tokens (follow active CSS vars) ──────────────────────
 const T = {
@@ -151,22 +152,24 @@ function Divider() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ConnectModal({ open, onClose, onConnected, prefillError }) {
-  const [modalTab,      setModalTab]      = useState('login')
-  const [authType,      setAuthType]      = useState('windows')
-  const [appIntent,     setAppIntent]     = useState('ReadWrite')
-  const [selectedColor, setSelectedColor] = useState(TAB_COLORS[0])
-  const [encrypt,       setEncrypt]       = useState('false')
-  const [trustCert,     setTrustCert]     = useState(true)
-  const [error,         setError]         = useState('')
-  const [loading,       setLoading]       = useState(false)
-  const [server,        setServer]        = useState('')
-  const [label,         setLabel]         = useState('')
-  const [database,      setDatabase]      = useState('')
-  const [user,          setUser]          = useState('')
-  const [password,      setPassword]      = useState('')
-  const [hostname,      setHostname]      = useState('')
-  const [connStr,       setConnStr]       = useState('')
+export default function ConnectModal({ open, onClose }) {
+  const { addConnection } = useConnections()
+  const [modalTab,        setModalTab]        = useState('login')
+  const [authType,        setAuthType]        = useState('windows')
+  const [appIntent,       setAppIntent]       = useState('ReadWrite')
+  const [selectedColor,   setSelectedColor]   = useState(TAB_COLORS[0])
+  const [encrypt,         setEncrypt]         = useState('false')
+  const [trustCert,       setTrustCert]       = useState(true)
+  const [error,           setError]           = useState('')
+  const [loading,         setLoading]         = useState(false)
+  const [server,          setServer]          = useState('')
+  const [label,           setLabel]           = useState('')
+  const [database,        setDatabase]        = useState('')
+  const [user,            setUser]            = useState('')
+  const [password,        setPassword]        = useState('')
+  const [hostname,        setHostname]        = useState('')
+  const [connStr,         setConnStr]         = useState('')
+  const [rememberPassword,setRememberPassword]= useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -184,21 +187,15 @@ export default function ConnectModal({ open, onClose, onConnected, prefillError 
     setAppIntent('ReadWrite')
     setSelectedColor(TAB_COLORS[0])
     setModalTab('login')
-    setError(prefillError || '')
+    setRememberPassword(false)
+    setError('')
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submitConnect(body) {
     setError('')
     setLoading(true)
     try {
-      const res  = await fetch('/api/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Connection failed')
-      onConnected(data, body)
+      await addConnection(body)
       onClose()
     } catch (err) {
       setError(err.message)
@@ -215,7 +212,7 @@ export default function ConnectModal({ open, onClose, onConnected, prefillError 
       password: authType === 'sql' ? password : undefined,
       encrypt, trustServerCert: trustCert,
       hostNameInCertificate: hostname || undefined,
-      appIntent, color: selectedColor,
+      appIntent, color: selectedColor, rememberPassword,
     })
   }
 
@@ -246,9 +243,9 @@ export default function ConnectModal({ open, onClose, onConnected, prefillError 
             </svg>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: T.text, lineHeight: 1.3 }}>
+            <DialogTitle style={{ fontWeight: 700, fontSize: 16, color: T.text, lineHeight: 1.3 }}>
               Connect to SQL Server
-            </div>
+            </DialogTitle>
             <div style={{ fontSize: 12, color: T.label, marginTop: 2 }}>
               Add a new monitored instance
             </div>
@@ -373,27 +370,40 @@ export default function ConnectModal({ open, onClose, onConnected, prefillError 
                 </div>
 
                 {authType === 'sql' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <Label>Username</Label>
-                      <Input
-                        value={user}
-                        onChange={e => setUser(e.target.value)}
-                        placeholder="sa"
-                        autoComplete="username"
-                      />
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <Label>Username</Label>
+                        <Input
+                          value={user}
+                          onChange={e => setUser(e.target.value)}
+                          placeholder="sa"
+                          autoComplete="username"
+                        />
+                      </div>
+                      <div>
+                        <Label>Password</Label>
+                        <Input
+                          type="password"
+                          value={password}
+                          onChange={e => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <Label>Password</Label>
-                      <Input
-                        type="password"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        autoComplete="current-password"
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginTop: -4 }}>
+                      <input
+                        type="checkbox"
+                        checked={rememberPassword}
+                        onChange={e => setRememberPassword(e.target.checked)}
+                        style={{ width: 15, height: 15, cursor: 'pointer', accentColor: T.accent, flexShrink: 0 }}
                       />
-                    </div>
-                  </div>
+                      <span style={{ fontSize: 12, color: T.textSub }}>
+                        Remember password for this session (never saved to disk)
+                      </span>
+                    </label>
+                  </>
                 )}
 
                 <Divider />

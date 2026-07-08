@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import { PALETTES, applyPalette } from '../lib/palettes'
-import { LayoutDashboard } from 'lucide-react'
+import { LayoutDashboard, RefreshCw } from 'lucide-react'
+import { useConnections } from '../context/ConnectionContext'
 
 function PaletteItem({ name, swatch, isActive, onClick }) {
   const [hovered, setHovered] = useState(false)
@@ -47,6 +48,7 @@ function PaletteItem({ name, swatch, isActive, onClick }) {
 
 export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }) {
   const { state, dispatch } = useApp()
+  const { isRefreshing, refreshAllConnections } = useConnections()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -72,9 +74,15 @@ export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }
       style={{ background: 'var(--header-bg)', boxShadow: '0 1px 0 rgba(255,255,255,.06),0 2px 12px rgba(0,0,0,.25)' }}
     >
       <div className="flex items-center gap-3">
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 flex-shrink-0" style={{ color: 'var(--header-icon)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
-        </svg>
+        <button
+          onClick={() => dispatch({ type: 'SET_SIDEBAR_OPEN', open: true })}
+          aria-label="Open connections sidebar"
+          className="p-1 rounded-md hover:bg-white/10 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 flex-shrink-0" style={{ color: 'var(--header-icon)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
         <span className="font-bold text-xl tracking-tight">SQL Activity Monitor</span>
       </div>
       <div className="flex items-center gap-4 text-sm">
@@ -84,6 +92,19 @@ export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }
             {connected ? 'Live' : 'Offline'}
           </span>
         </div>
+        {/* Refresh all connections */}
+        <button
+          onClick={() => refreshAllConnections()}
+          disabled={isRefreshing}
+          aria-label="Refresh all connections"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium hover:bg-white/10 transition-colors disabled:opacity-50"
+          style={{ color: 'var(--header-icon)' }}
+          title="Refresh all connected servers"
+        >
+          <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+          <span>Refresh</span>
+        </button>
+
         {/* Widget sidebar toggle */}
         <button
           onClick={onToggleWidgets}

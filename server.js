@@ -797,6 +797,12 @@ app.post('/api/connect', async (req, res) => {
       connections.delete(id);
     }
 
+    pool.on('error', err => {
+      io.to(`conn:${id}`).emit('connectionStatusChanged', {
+        connectionId: id, status: 'disconnected', error: err.message,
+      });
+    });
+
     const displayLabel = label?.trim() || server;
 
     const conn = {
@@ -809,21 +815,26 @@ app.post('/api/connect', async (req, res) => {
     connections.set(id, conn);
 
     // Start polling
-    const poll = async () => {
+    const poll = async (refreshRequestId = null) => {
       const c = connections.get(id);
       if (!c) return;
       try {
         const metrics = await collectMetrics(c.pool, c.prevIO, c.prevNet);
         c.prevIO  = metrics._prevIO;  delete metrics._prevIO;
         c.prevNet = metrics._prevNet; delete metrics._prevNet;
-        io.to(`conn:${id}`).emit('metrics', { connId: id, ...metrics });
+        io.to(`conn:${id}`).emit('metricsUpdated', {
+          connectionId: id, refreshRequestId, metrics, timestamp: Date.now(),
+        });
       } catch (err) {
         console.error(`[${displayLabel}] Poll error:`, err.message);
-        io.to(`conn:${id}`).emit('poll_error', { connId: id, message: err.message });
+        io.to(`conn:${id}`).emit('refreshFailed', {
+          connectionId: id, refreshRequestId, reason: err.message,
+        });
       }
     };
 
     await poll();
+    conn.poll   = poll;
     conn.handle = setInterval(poll, POLL_MS);
 
     // Take initial DB size snapshot and schedule daily re-check
@@ -850,8 +861,27 @@ app.delete('/api/disconnect/:id', async (req, res) => {
   try { await conn.pool.close(); } catch {}
   connections.delete(req.params.id);
   missingIndexCache.delete(req.params.id);
+  io.to(`conn:${req.params.id}`).emit('serverRemoved', { connectionId: req.params.id });
   console.log(`- Disconnected: ${conn.label} [${req.params.id.slice(0,8)}]`);
   res.json({ ok: true });
+});
+
+app.post('/api/refresh/all', (req, res) => {
+  const refreshRequestId = typeof req.body?.refreshRequestId === 'string'
+    ? req.body.refreshRequestId : null;
+  for (const [, c] of connections) {
+    if (c.poll) c.poll(refreshRequestId);
+  }
+  res.status(204).end();
+});
+
+app.post('/api/refresh/:id', (req, res) => {
+  const conn = requireConn(req, res);
+  if (!conn) return;
+  const refreshRequestId = typeof req.body?.refreshRequestId === 'string'
+    ? req.body.refreshRequestId : null;
+  if (conn.poll) conn.poll(refreshRequestId);
+  res.status(204).end();
 });
 
 app.post('/api/connections/:id/kill-sleeping', async (req, res) => {

@@ -1,28 +1,24 @@
 import React from 'react'
 import { describe, it, expect } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
-import { renderWithContext, makeJob } from '../../test/helpers'
+import { screen, fireEvent, act } from '@testing-library/react'
+import { renderWithContext, makeJob, makeProfileFixture } from '../../test/helpers'
+import { useConnections } from '../../context/ConnectionContext'
 import JobsPanel from '../../components/JobsPanel'
-
-// Wrap in an AppProvider with a connection pre-seeded
-import { AppProvider, useApp } from '../../context/AppContext'
-import { act } from '@testing-library/react'
-import { render } from '@testing-library/react'
 
 function renderJobsPanel(jobs = []) {
   let dispatch
   function Capture() {
-    const ctx = useApp()
+    const ctx = useConnections()
     dispatch = ctx.dispatch
     return null
   }
-  const result = render(
-    <AppProvider>
+  const result = renderWithContext(
+    <>
       <Capture />
       <JobsPanel jobs={jobs} connId="c1" />
-    </AppProvider>
+    </>
   )
-  act(() => dispatch({ type: 'ADD_CONN', conn: { id: 'c1', label: 'Dev', server: 'DEV' } }))
+  act(() => dispatch({ type: 'ADD_PROFILE', profile: makeProfileFixture({ id: 'c1' }) }))
   return result
 }
 
@@ -45,7 +41,6 @@ describe('JobsPanel — job display', () => {
       makeJob({ job_id: 'job-002', job_name: 'Job B', status: 'Succeeded' }),
     ]
     renderJobsPanel(jobs)
-    // "2" appears in count badge (and possibly sort icons); just check it's present
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
   })
 
