@@ -1,11 +1,25 @@
 import React from 'react'
 import { render } from '@testing-library/react'
 import { AppProvider } from '../context/AppContext'
+import { ConnectionProvider } from '../context/ConnectionContext'
 
 // ── Render helper ──────────────────────────────────────────────────────────────
-export function renderWithContext(ui, { initialDispatch } = {}) {
-  const result = render(<AppProvider>{ui}</AppProvider>)
-  return result
+export function renderWithContext(ui) {
+  return render(
+    <AppProvider>
+      <ConnectionProvider>{ui}</ConnectionProvider>
+    </AppProvider>
+  )
+}
+
+// ── Profile factory ───────────────────────────────────────────────────────────
+export function makeProfileFixture(overrides = {}) {
+  return {
+    schemaVersion: 1, id: 'c1', displayName: 'Dev', serverName: 'DEV',
+    authenticationType: 'windows', autoConnect: false, displayOrder: 0,
+    color: '#3b82f6', appIntent: 'ReadWrite', createdAt: 't', updatedAt: 't',
+    ...overrides,
+  }
 }
 
 // ── Mock data factories ────────────────────────────────────────────────────────

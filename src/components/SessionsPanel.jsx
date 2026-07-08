@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useApp } from '../context/AppContext'
+import { useConnections } from '../context/ConnectionContext'
 import { Maximize2, X } from 'lucide-react'
 
 const COMPACT_H = 360
@@ -81,8 +81,8 @@ function SessionRow({ session: s, onKill }) {
 
 // ── Inner panel (shared between compact + expanded) ───────────────────────────
 function SessionsPanelInner({ processes, connId, expanded, onExpand, onClose, scrollRef }) {
-  const { state, dispatch } = useApp()
-  const conn = state.connections[connId]
+  const { connections, dispatch } = useConnections()
+  const conn = connections[connId]
   const expandedGroups = conn?.expandedSessionGroups || new Set()
   const [killTarget,   setKillTarget]   = useState(null)   // { sessionId, login, host }
   const [killing,      setKilling]      = useState(false)

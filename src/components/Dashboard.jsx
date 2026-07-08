@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from '
 import MissingIndexes from './MissingIndexes'
 import QueryTextModal from './QueryTextModal'
 import { useApp } from '../context/AppContext'
+import { useConnections } from '../context/ConnectionContext'
 import { metricStatusColor, C_CRIT, C_WARN } from '../lib/thresholds'
 import { escapeHtml, fmtNum, fmtBytes } from '../lib/fmt'
 import { PALETTES } from '../lib/palettes'
@@ -293,8 +294,9 @@ function buildCharts(m, sp, conn, p) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export default memo(function Dashboard({ connId }) {
-  const { state, dispatch } = useApp()
-  const conn = state.connections[connId]
+  const { state } = useApp()
+  const { connections, dispatch } = useConnections()
+  const conn = connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
   const [bulkKill,   setBulkKill]   = useState(null)   // null | { count, confirmed }
   const [singleKill, setSingleKill] = useState(null)   // null | { sessionId, login, host, confirmed, killing, error }

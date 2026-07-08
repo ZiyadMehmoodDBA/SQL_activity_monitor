@@ -25,14 +25,10 @@ const sessionStorageMock = (() => {
 Object.defineProperty(window, 'sessionStorage', { value: sessionStorageMock })
 
 // ── socket.io-client mock ──────────────────────────────────────────────────────
+const makeSocket = () => ({ on: vi.fn(), off: vi.fn(), emit: vi.fn(), disconnect: vi.fn(), connected: false })
 vi.mock('socket.io-client', () => ({
-  default: vi.fn(() => ({
-    on: vi.fn(),
-    off: vi.fn(),
-    emit: vi.fn(),
-    disconnect: vi.fn(),
-    connected: false,
-  })),
+  io: vi.fn(makeSocket),
+  default: vi.fn(makeSocket),
 }))
 
 // ── @tanstack/react-virtual mock ───────────────────────────────────────────────
@@ -63,7 +59,7 @@ global.alert   = vi.fn()
 
 // ── fetch stub ────────────────────────────────────────────────────────────────
 global.fetch = vi.fn(() =>
-  Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+  Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
 )
 
 // ── jest shim for @testing-library + Vitest fake timers ────────────────────────

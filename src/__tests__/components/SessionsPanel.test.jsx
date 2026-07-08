@@ -1,25 +1,24 @@
 import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { screen, act } from '@testing-library/react'
-import { render } from '@testing-library/react'
-import { AppProvider, useApp } from '../../context/AppContext'
+import { renderWithContext, makeSession, makeProfileFixture } from '../../test/helpers'
+import { useConnections } from '../../context/ConnectionContext'
 import SessionsPanel from '../../components/SessionsPanel'
-import { makeSession } from '../../test/helpers'
 
 function renderSessionsPanel(processes = []) {
   let dispatch
   function Capture() {
-    const ctx = useApp()
+    const ctx = useConnections()
     dispatch = ctx.dispatch
     return null
   }
-  const result = render(
-    <AppProvider>
+  const result = renderWithContext(
+    <>
       <Capture />
       <SessionsPanel processes={processes} connId="c1" />
-    </AppProvider>
+    </>
   )
-  act(() => dispatch({ type: 'ADD_CONN', conn: { id: 'c1', label: 'Dev', server: 'DEV' } }))
+  act(() => dispatch({ type: 'ADD_PROFILE', profile: makeProfileFixture({ id: 'c1' }) }))
   return result
 }
 
@@ -37,7 +36,6 @@ describe('SessionsPanel — session count', () => {
       makeSession({ session_id: 52, host_name: 'HOST1', login_name: 'sa' }),
     ]
     renderSessionsPanel(sessions)
-    // "2" appears in both the total count header and the group badge
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
   })
 })
@@ -58,7 +56,6 @@ describe('SessionsPanel — grouping', () => {
       makeSession({ session_id: 52, host_name: 'DEVBOX', login_name: 'sa' }),
     ]
     renderSessionsPanel(sessions)
-    // "2" appears in total count header and/or group badge
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
   })
 })
@@ -69,7 +66,6 @@ describe('SessionsPanel — blocked badge', () => {
       makeSession({ session_id: 51, host_name: 'DEVBOX', login_name: 'sa', blocking_session_id: 55 }),
     ]
     renderSessionsPanel(sessions)
-    // Blocked badge shows "⚠ BLOCKED" or "blocked" count badge in header
     expect(screen.getAllByText(/block/i).length).toBeGreaterThanOrEqual(1)
   })
 })

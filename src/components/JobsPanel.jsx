@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useApp } from '../context/AppContext'
+import { useConnections } from '../context/ConnectionContext'
 import { fmtJobDuration } from '../lib/fmt'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 
@@ -73,8 +73,8 @@ const PILLS = [
 
 // ── Inner panel (shared between compact + expanded) ───────────────────────────
 function JobsPanelInner({ jobs, connId, expanded, onExpand, onClose, scrollRef, failedCount = 0 }) {
-  const { state, dispatch } = useApp()
-  const conn = state.connections[connId]
+  const { connections, dispatch } = useConnections()
+  const conn = connections[connId]
 
   const jobsFilter = conn?.jobsFilter || 'all'
   const jobsSearch = conn?.jobsSearch || ''
