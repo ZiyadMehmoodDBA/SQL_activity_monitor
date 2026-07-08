@@ -6,6 +6,7 @@ import Header from './components/Header'
 import ConnectModal from './components/ConnectModal'
 import ReconnectModal from './components/ReconnectModal'
 import ConnectionSidebar from './components/ConnectionSidebar'
+import ConnectionTabBar from './components/ConnectionTabBar'
 import Dashboard from './components/Dashboard'
 import WidgetSidebar from './components/WidgetSidebar'
 
@@ -30,7 +31,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--body-bg)', color: 'var(--body-text)' }}>
-      <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
+      <div className="sticky top-0 z-50">
+        <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
+        <ConnectionTabBar onAddConnection={() => { closeSidebar(); setShowConnect(true) }} />
+      </div>
       <WidgetSidebar open={showWidgets} onClose={() => setShowWidgets(false)} />
 
       <ConnectionSidebar

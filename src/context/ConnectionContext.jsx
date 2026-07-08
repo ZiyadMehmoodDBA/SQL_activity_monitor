@@ -233,6 +233,17 @@ export function ConnectionProvider({ children }) {
     dispatch({ type: 'REMOVE_PROFILE', id })
   }, [])
 
+  const disconnectConnection = useCallback(async id => {
+    try { await fetch(`/api/disconnect/${id}`, { method: 'DELETE' }) } catch {}
+    socketRef.current?.emit('unsubscribe', id)
+    dispatch({ type: 'SET_STATUS', id, status: 'disconnected' })
+    if (stateRef.current.selectedConnectionId === id) {
+      const next = Object.values(stateRef.current.connections)
+        .find(c => c.id !== id && ['connected', 'connecting', 'reconnecting'].includes(c.status))
+      dispatch({ type: 'SET_SELECTED', connId: next?.id ?? null })
+    }
+  }, [])
+
   const reconnect = useCallback(async (id, password) => {
     const profile = stateRef.current.profiles.find(p => p.id === id)
     if (!profile) return
@@ -304,12 +315,13 @@ export function ConnectionProvider({ children }) {
     updateConnection,
     renameConnection,
     removeConnection,
+    disconnectConnection,
     reconnect,
     setSelected,
     refreshAllConnections,
     dispatch,
   }), [state, enrichedConnections, selectedConnection, addConnection, updateConnection,
-       renameConnection, removeConnection, reconnect, setSelected, refreshAllConnections])
+       renameConnection, removeConnection, disconnectConnection, reconnect, setSelected, refreshAllConnections])
 
   return (
     <ConnectionContext.Provider value={value}>

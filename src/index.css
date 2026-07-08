@@ -381,3 +381,6 @@ tbody tr.dr-odd { background: rgba(0,0,0,.012); }
   color: var(--text-muted);
   margin-bottom: 10px;
 }
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { scrollbar-width: none; }

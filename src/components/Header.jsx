@@ -70,7 +70,7 @@ export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }
 
   return (
     <header
-      className="text-white px-5 py-2.5 flex items-center justify-between sticky top-0 z-50"
+      className="text-white px-5 py-2.5 flex items-center justify-between"
       style={{ background: 'var(--header-bg)', boxShadow: '0 1px 0 rgba(255,255,255,.06),0 2px 12px rgba(0,0,0,.25)' }}
     >
       <div className="flex items-center gap-3">
