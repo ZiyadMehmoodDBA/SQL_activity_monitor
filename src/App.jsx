@@ -1,164 +1,52 @@
 import React, { useState, useEffect } from 'react'
 import { useApp } from './context/AppContext'
-import { useSocket } from './hooks/useSocket'
+import { useConnections } from './context/ConnectionContext'
 import { applyPalette } from './lib/palettes'
 import Header from './components/Header'
-import TabBar from './components/TabBar'
 import ConnectModal from './components/ConnectModal'
+import ReconnectModal from './components/ReconnectModal'
+import ConnectionSidebar from './components/ConnectionSidebar'
 import Dashboard from './components/Dashboard'
 import WidgetSidebar from './components/WidgetSidebar'
 
 export default function App() {
   const { state, dispatch } = useApp()
-  const [showConnect,    setShowConnect]    = useState(false)
-  const [showWidgets,    setShowWidgets]    = useState(false)
-  const [reconnecting,   setReconnecting]   = useState(false)
-  const [reconnectLabel, setReconnectLabel] = useState('')
-  const [prefillError,   setPrefillError]   = useState('')
-  const socketRef = useSocket(dispatch, state.connections)
+  const { profiles, selectedConnectionId, selectedConnection, isInitializing } = useConnections()
+  const [showConnect, setShowConnect] = useState(false)
+  const [showWidgets, setShowWidgets] = useState(false)
+  const [reconnectId, setReconnectId] = useState(null)
 
-  // Apply palette on mount and when it changes
   useEffect(() => {
     applyPalette(state.palette)
   }, [state.palette])
 
-  // On mount: attempt silent reconnect using stable clientId so Dashboard
-  // never remounts (server reuses the same conn ID → key unchanged).
-  // AppContext already hydrated placeholder conn from localStorage, so the
-  // Dashboard renders immediately — this effect just wires up the real pool.
+  // First run with no saved profiles: open connect modal
   useEffect(() => {
-    const saved    = (() => { try { return JSON.parse(localStorage.getItem('sqlmon-saved-conn')) } catch { return null } })()
-    const clientId = localStorage.getItem('sqlmon-conn-id')
+    if (!isInitializing && profiles.length === 0) setShowConnect(true)
+  }, [isInitializing, profiles.length])
 
-    const cleanupStale = () =>
-      fetch('/api/connections')
-        .then(r => r.json())
-        .then(existing => existing.forEach(c =>
-          fetch(`/api/disconnect/${c.id}`, { method: 'DELETE' }).catch(() => {})
-        ))
-        .catch(() => {})
-
-    if (!saved || !clientId) {
-      // No saved session — wipe any stale server state and open ConnectModal
-      cleanupStale().finally(() => setShowConnect(true))
-      return
-    }
-
-    setReconnecting(true)
-    setReconnectLabel(saved.label || saved.server || 'server')
-
-    const body = { ...saved, _clientId: clientId }
-    if (saved.authType === 'sql') {
-      body.password = sessionStorage.getItem('sqlmon-saved-pass') || ''
-    }
-
-    // Sequential: cleanup first to avoid ID collision on the server, then reconnect
-    cleanupStale()
-      .then(() => fetch('/api/connect', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      }))
-      .then(async r => {
-        const data = await r.json()
-        if (!r.ok) throw new Error(data.error || 'Reconnect failed')
-        return data
-      })
-      .then(conn => {
-        // Server returned same clientId → ADD_CONN overwrites placeholder in-place.
-        // Dashboard key stays identical → no remount → no flash.
-        dispatch({ type: 'ADD_CONN', conn })
-      })
-      .catch(err => {
-        // Clear all stale credentials immediately
-        try {
-          localStorage.removeItem('sqlmon-saved-conn')
-          localStorage.removeItem('sqlmon-conn-id')
-          sessionStorage.removeItem('sqlmon-saved-pass')
-        } catch {}
-        // Evict placeholder, open clean login form
-        dispatch({ type: 'HYDRATE_FAILED', connId: clientId })
-        setPrefillError(`Auto-reconnect failed: ${err.message}`)
-        setShowConnect(true)
-      })
-      .finally(() => setReconnecting(false))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleConnected(conn, formBody) {
-    dispatch({ type: 'ADD_CONN', conn })
-    if (socketRef.current) {
-      socketRef.current.emit('subscribe', conn.id)
-    }
-    // Persist config (no password) + stable ID for zero-flash reconnect on refresh
-    if (formBody) {
-      const { password: _pw, ...toSave } = formBody
-      try {
-        localStorage.setItem('sqlmon-saved-conn', JSON.stringify(toSave))
-        localStorage.setItem('sqlmon-conn-id', conn.id)
-      } catch {}
-      if (formBody.authType === 'sql' && formBody.password) {
-        try { sessionStorage.setItem('sqlmon-saved-pass', formBody.password) } catch {}
-      }
-    }
-    setShowConnect(false)
-    setPrefillError('')
-  }
-
-  async function handleRemoveConnection(connId) {
-    const conn = state.connections[connId]
-    if (!conn) return
-    if (!window.confirm(`Disconnect from ${conn.label}?`)) return
-    try {
-      await fetch(`/api/disconnect/${connId}`, { method: 'DELETE' })
-    } catch {}
-    if (socketRef.current) {
-      socketRef.current.emit('unsubscribe', connId)
-    }
-    dispatch({ type: 'REMOVE_CONN', connId })
-    // Clear persisted session
-    try {
-      const saved = JSON.parse(localStorage.getItem('sqlmon-saved-conn'))
-      if (saved?.server === conn.server) {
-        localStorage.removeItem('sqlmon-saved-conn')
-        localStorage.removeItem('sqlmon-conn-id')
-        sessionStorage.removeItem('sqlmon-saved-pass')
-      }
-    } catch {}
-  }
-
-  const connIds = Object.keys(state.connections)
-  const activeConn = state.activeConnId ? state.connections[state.activeConnId] : null
-  const isConnected = connIds.length > 0 && !!activeConn?.lastUpdate
+  const isConnected = !!selectedConnection?.lastUpdate
+  const closeSidebar = () => dispatch({ type: 'SET_SIDEBAR_OPEN', open: false })
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--body-bg)', color: 'var(--body-text)' }}>
-      {reconnecting && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
-          background: 'var(--header-bg)', color: '#fff',
-          textAlign: 'center', padding: '9px 16px',
-          fontSize: 13, fontWeight: 600, letterSpacing: '.01em',
-        }}>
-          Reconnecting to {reconnectLabel}…
-        </div>
-      )}
       <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
       <WidgetSidebar open={showWidgets} onClose={() => setShowWidgets(false)} />
 
-      {connIds.length > 0 && (
-        <TabBar
-          onAddConnection={() => setShowConnect(true)}
-          onRemoveConnection={handleRemoveConnection}
-        />
-      )}
+      <ConnectionSidebar
+        open={state.sidebarOpen}
+        onClose={closeSidebar}
+        onAddConnection={() => { closeSidebar(); setShowConnect(true) }}
+        onRequestPassword={id => { closeSidebar(); setReconnectId(id) }}
+      />
 
       <main className="p-6" style={{ maxWidth: 1920, margin: '0 auto' }}>
-        {reconnecting ? null : connIds.length === 0 ? (
+        {isInitializing ? null : profiles.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <svg className="w-16 h-16 text-slate-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7h16M4 12h16M4 17h16" />
             </svg>
-            <h2 className="text-xl font-semibold text-slate-500 mb-2">No Active Connections</h2>
+            <h2 className="text-xl font-semibold text-slate-500 mb-2">No Saved Connections</h2>
             <p className="text-slate-400 text-sm mb-6">Connect to a SQL Server instance to start monitoring</p>
             <button
               onClick={() => setShowConnect(true)}
@@ -168,17 +56,13 @@ export default function App() {
               + New Connection
             </button>
           </div>
-        ) : state.activeConnId ? (
-          <Dashboard key={state.activeConnId} connId={state.activeConnId} />
+        ) : selectedConnectionId ? (
+          <Dashboard key={selectedConnectionId} connId={selectedConnectionId} />
         ) : null}
       </main>
 
-      <ConnectModal
-        open={showConnect}
-        onClose={() => { setShowConnect(false); setPrefillError('') }}
-        onConnected={handleConnected}
-        prefillError={prefillError}
-      />
+      <ConnectModal open={showConnect} onClose={() => setShowConnect(false)} />
+      <ReconnectModal connectionId={reconnectId} onClose={() => setReconnectId(null)} />
     </div>
   )
 }
