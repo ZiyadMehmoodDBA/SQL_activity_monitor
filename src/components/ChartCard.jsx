@@ -9,14 +9,24 @@ function axFmt(v) {
   return String(Math.round(v))
 }
 
-export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps, events }) {
+export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps, events, band }) {
   const series = useMemo(() => {
     const data = history && history.length > 0 ? history : Array(60).fill(null)
+    const hasBand = Boolean(timestamps && band && band.some((p) => p.y))
     if (timestamps && history && history.length > 0 && timestamps.length === history.length) {
-      return [{ name: title, data: history.map((y, i) => ({ x: timestamps[i], y })) }]
+      const points = history.map((y, i) => ({ x: timestamps[i], y }))
+      if (hasBand) {
+        return [
+          { type: 'rangeArea', name: 'Typical', data: band },
+          { type: 'line', name: title, data: points },
+        ]
+      }
+      return [{ name: title, data: points }]
     }
     return [{ name: title, data }]
-  }, [history, timestamps, title])
+  }, [history, timestamps, title, band])
+
+  const hasBand = Boolean(timestamps && band && band.some((p) => p.y))
 
   const options = useMemo(() => ({
     annotations: (timestamps && events && events.length > 0) ? {
@@ -31,7 +41,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
       })),
     } : {},
     chart: {
-      type: 'area',
+      type: hasBand ? 'rangeArea' : 'area',
       toolbar:    { show: false },
       sparkline:  { enabled: false },
       animations: {
@@ -45,21 +55,23 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
       redrawOnWindowResize: false,
       redrawOnParentResize: false,
     },
-    stroke: { curve: 'smooth', width: 1.5 },
-    fill: {
-      type: 'gradient',
-      gradient: {
-        shadeIntensity: 1,
-        opacityFrom: 0.28,
-        opacityTo: 0.0,
-        stops: [0, 100],
-        colorStops: [
-          { offset: 0,   color, opacity: 0.28 },
-          { offset: 100, color, opacity: 0.0  },
-        ],
-      },
-    },
-    colors: [color],
+    stroke: hasBand ? { width: [0, 1.5], curve: 'smooth' } : { curve: 'smooth', width: 1.5 },
+    fill: hasBand
+      ? { opacity: [0.10, 1] }
+      : {
+          type: 'gradient',
+          gradient: {
+            shadeIntensity: 1,
+            opacityFrom: 0.28,
+            opacityTo: 0.0,
+            stops: [0, 100],
+            colorStops: [
+              { offset: 0,   color, opacity: 0.28 },
+              { offset: 100, color, opacity: 0.0  },
+            ],
+          },
+        },
+    colors: hasBand ? [color, color] : [color],
     xaxis: {
       ...(timestamps ? { type: 'datetime' } : {}),
       labels:     { show: false },
@@ -104,7 +116,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
         },
       },
     },
-  }), [color, yMax, title, timestamps, events])
+  }), [color, yMax, title, timestamps, events, hasBand])
 
   return (
     // overflow:hidden prevents ApexCharts from momentarily overflowing the card boundary,

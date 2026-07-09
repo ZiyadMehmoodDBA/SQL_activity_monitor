@@ -12,6 +12,7 @@ import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
 import HistoryRangePicker from './HistoryRangePicker'
 import { buildHistorySeries, aggregateWaits } from '../lib/historySeries'
+import { bandData } from '../lib/baselineBand.js'
 import JobsPanel from './JobsPanel'
 import QueryOptimizationSection from './QueryOptimizationSection'
 import SessionsPanel from './SessionsPanel'
@@ -282,6 +283,9 @@ const VTABLE_SECTION_CFG = {
   tempdb_usage:     { sectionId: 'tempdb',    title: 'TempDB Usage',             sortKey: 'tempdb',    height: 280, metricKey: 'tempdbUsage',   supportsTopN: true },
 }
 
+// KPI key mapping for baseline fetches (histKey → API kpi param)
+const HIST_KPI_BY_CHART = { cpu: 'cpu_pct', wait: 'waiting_tasks', io: 'io_mb', batch: 'batch_req' }
+
 // ── Chart config builder (pure, no side effects) ──────────────────────────────
 function buildCharts(m, sp, conn, p) {
   return [
@@ -306,16 +310,17 @@ export default memo(function Dashboard({ connId }) {
   const [topN,       setTopN]       = useState(10)
   const [dbFilter,   setDbFilter]   = useState('')
   const [killResult, setKillResult] = useState(null)
-  const [histRange, setHistRange]     = useState(null)  // null = Live
-  const [histData, setHistData]       = useState(null)  // { resolution, timestamps, series, blocking, waits }
-  const [histLoading, setHistLoading] = useState(false)
-  const [histError, setHistError]     = useState(null)
-  const [blockDetail, setBlockDetail] = useState(null) // null | blocking_events row
+  const [histRange, setHistRange]         = useState(null)  // null = Live
+  const [histData, setHistData]           = useState(null)  // { resolution, timestamps, series, blocking, waits }
+  const [histLoading, setHistLoading]     = useState(false)
+  const [histError, setHistError]         = useState(null)
+  const [histBaselines, setHistBaselines] = useState({})    // chartKey -> baseline rows
+  const [blockDetail, setBlockDetail]     = useState(null)  // null | blocking_events row
   useEffect(() => {
     setTopN(10)
     setDbFilter('')
     setQueryView(null)
-    setHistRange(null); setHistData(null); setHistError(null); setHistLoading(false);
+    setHistRange(null); setHistData(null); setHistError(null); setHistLoading(false); setHistBaselines({});
   }, [connId])
 
   // Deep-link from alert panel: jump to alert window in history mode
@@ -334,7 +339,7 @@ export default memo(function Dashboard({ connId }) {
   useEffect(() => () => clearTimeout(killResultTimer.current), [])
 
   useEffect(() => {
-    if (!histRange) { setHistData(null); setHistError(null); return }
+    if (!histRange) { setHistData(null); setHistError(null); setHistBaselines({}); return }
     let cancelled = false
     setHistLoading(true)
     setHistError(null)
@@ -354,6 +359,17 @@ export default memo(function Dashboard({ connId }) {
       if (!cancelled) setHistError(err.message)
     }).finally(() => {
       if (!cancelled) setHistLoading(false)
+    })
+    // Fetch baselines for the four mapped KPIs (fire-and-forget, errors are silent)
+    Promise.all(
+      Object.entries(HIST_KPI_BY_CHART).map(([chartKey, kpi]) =>
+        fetch(`/api/connections/${connId}/baselines?kpi=${kpi}`)
+          .then((r) => (r.ok ? r.json() : { baselines: [] }))
+          .then(({ baselines }) => [chartKey, baselines])
+          .catch(() => [chartKey, []])
+      )
+    ).then((entries) => {
+      if (!cancelled) setHistBaselines(Object.fromEntries(entries))
     })
     return () => { cancelled = true }
   }, [histRange, connId])
@@ -811,6 +827,7 @@ export default memo(function Dashboard({ connId }) {
               color={c.color}
               yMax={c.yMax}
               events={histRange && c.histKey === 'cpu' ? (histData?.blocking ?? []) : undefined}
+              band={histRange && histBaselines[c.histKey] ? bandData(histBaselines[c.histKey], histData?.timestamps ?? []) : undefined}
             />
           </div>
         ))}
