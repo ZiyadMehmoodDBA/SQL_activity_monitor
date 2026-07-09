@@ -11,6 +11,8 @@ const { MemoryScanStore }   = require('./server/indexScanStore.js')
 const { runScan, calcProgressPct, paginateResults, SCAN_TTL_MS } = require('./server/indexScanOrchestrator.js')
 const metricsStore = require('./server/metricsStore');
 const { parseHistoryRange, VALID_RESOLUTIONS } = require('./server/historyRange');
+const { createAlertEvaluator } = require('./server/alertEvaluator');
+const { parseKpi, parseAlertId } = require('./server/alertValidation');
 
 const PORT    = parseInt(process.env.PORT)              || 3000;
 // Bind localhost-only by default: every API endpoint is unauthenticated, so
@@ -1050,6 +1052,39 @@ app.get('/api/connections/:id/history/blocking', (req, res) => {
   res.json(metricsStore.getBlockingHistory(conn.instanceKey || conn.server, range.from, range.to));
 });
 
+// ─── Alerts + baselines API ───────────────────────────────────────────────────
+app.get('/api/connections/:id/alerts', (req, res) => {
+  const c = requireConn(req, res);
+  if (!c) return;
+  if (req.query.active === '1') {
+    return res.json({ alerts: metricsStore.getAlerts(c.instanceKey, { activeOnly: true }) });
+  }
+  const range = parseHistoryRange(req.query);
+  if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  if (range.to - range.from > MAX_HISTORY_SPAN_MS) {
+    return res.status(400).json({ error: 'range too large (max 90 days)' });
+  }
+  res.json({ alerts: metricsStore.getAlerts(c.instanceKey, { from: range.from, to: range.to }) });
+});
+
+app.post('/api/connections/:id/alerts/:alertId/ack', (req, res) => {
+  const c = requireConn(req, res);
+  if (!c) return;
+  const alertId = parseAlertId(req.params.alertId);
+  if (alertId == null) return res.status(400).json({ error: 'Invalid alert id' });
+  const ok = metricsStore.ackAlert(c.instanceKey, alertId, Date.now());
+  if (!ok) return res.status(404).json({ error: 'Alert not found' });
+  res.json({ ok: true });
+});
+
+app.get('/api/connections/:id/baselines', (req, res) => {
+  const c = requireConn(req, res);
+  if (!c) return;
+  const kpi = parseKpi(req.query.kpi);
+  if (!kpi) return res.status(400).json({ error: 'Invalid kpi' });
+  res.json({ kpi, baselines: metricsStore.getBaselines(c.instanceKey, kpi) });
+});
+
 app.get('/api/persistence/status', (_req, res) => {
   res.json(metricsStore.health());
 });
@@ -1236,6 +1271,20 @@ io.on('connection', socket => {
   });
 });
 
+// --- alert evaluator: runs for every monitored server, independent of dashboard clients ---
+const alertEvaluator = createAlertEvaluator({
+  listServers: () =>
+    [...connections.entries()].map(([id, c]) => ({
+      connectionId: id,
+      instanceKey: c.instanceKey || c.server,
+    })),
+  emit: (connectionId, payload) => {
+    io.to(`conn:${connectionId}`).emit('alert', { connectionId, ...payload });
+  },
+});
+alertEvaluator.start();
+setInterval(() => alertEvaluator.evaluate(), 60_000);
+
 // ─── Metrics persistence maintenance — clock-aligned at HH:05 ────────────────
 function runMetricsMaintenance() {
   try {
@@ -1249,6 +1298,8 @@ function runMetricsMaintenance() {
       if (Date.now() >= today3am.getTime() && lastCheckpoint < today3am.getTime()) {
         metricsStore.vacuum();
         metricsStore.checkpoint();
+        const baselineRows = metricsStore.recomputeBaselines(Date.now());
+        if (baselineRows > 0) alertEvaluator.reloadCache();
       }
     }
   } catch (e) {
