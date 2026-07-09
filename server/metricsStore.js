@@ -227,6 +227,84 @@ function checkpoint(now = Date.now()) {
   }
 }
 
+const RESOLUTION_MS = { '1m': 60_000, '15m': 900_000, '1h': 3_600_000 };
+
+function pickResolution(spanMs) {
+  if (spanMs <= 2 * 3_600_000) return 'raw';
+  if (spanMs <= 48 * 3_600_000) return '1m';
+  if (spanMs <= 14 * 86_400_000) return '15m';
+  return '1h';
+}
+
+function tailSql(bucketMs) {
+  const cols = schema.KPI_COLUMNS.map(c =>
+    `AVG(${c.name}) AS ${c.name}_avg, MIN(${c.name}) AS ${c.name}_min, MAX(${c.name}) AS ${c.name}_max`
+  ).join(', ');
+  return `SELECT server_id, ts - ts % ${bucketMs} AS ts, ${cols}, COUNT(*) AS sample_count
+    FROM samples_raw
+    WHERE server_id = @serverId AND ts >= @from AND ts <= @to
+    GROUP BY 2 ORDER BY 2`;
+}
+
+function resolveServerId(instanceKey) {
+  return db.prepare('SELECT id FROM servers WHERE instance_key = ?').get(instanceKey)?.id ?? null;
+}
+
+function getHistory(instanceKey, fromMs, toMs, resolution = 'auto') {
+  if (!enabled) return { resolution: null, rows: [] };
+  const res = resolution === 'auto' ? pickResolution(toMs - fromMs) : resolution;
+  const serverId = resolveServerId(instanceKey);
+  if (serverId === null) return { resolution: res, rows: [] };
+
+  if (res === 'raw') {
+    const rows = db.prepare(
+      `SELECT * FROM samples_raw WHERE server_id = ? AND ts >= ? AND ts <= ? ORDER BY ts`
+    ).all(serverId, fromMs, toMs);
+    return { resolution: 'raw', rows };
+  }
+
+  const ms = RESOLUTION_MS[res];
+  const rows = db.prepare(
+    `SELECT * FROM samples_${res} WHERE server_id = ? AND ts >= ? AND ts <= ? ORDER BY ts`
+  ).all(serverId, fromMs, toMs);
+
+  // Rolled-tail gap: rollups run hourly, so the newest part of the range has
+  // no rollup rows yet. Aggregate samples_raw on the fly past the watermark.
+  const wm = db.prepare(
+    'SELECT watermark_ts FROM rollup_state WHERE server_id = ? AND resolution = ?'
+  ).get(serverId, res)?.watermark_ts ?? 0;
+  if (toMs > wm) {
+    const tail = db.prepare(tailSql(ms)).all({
+      serverId, from: Math.max(wm, fromMs - (fromMs % ms)), to: toMs,
+    });
+    const seen = new Set(rows.map(r => r.ts));
+    for (const t of tail) if (!seen.has(t.ts)) rows.push(t);
+    rows.sort((a, b) => a.ts - b.ts);
+  }
+  return { resolution: res, rows };
+}
+
+function getWaitHistory(instanceKey, fromMs, toMs) {
+  if (!enabled) return { rows: [] };
+  const serverId = resolveServerId(instanceKey);
+  if (serverId === null) return { rows: [] };
+  const rows = db.prepare(
+    `SELECT ts, wait_type, wait_time_ms, waiting_tasks_count, signal_wait_time_ms
+     FROM waits_samples WHERE server_id = ? AND ts >= ? AND ts <= ? ORDER BY ts, wait_type`
+  ).all(serverId, fromMs, toMs);
+  return { rows };
+}
+
+function getBlockingHistory(instanceKey, fromMs, toMs) {
+  if (!enabled) return { rows: [] };
+  const serverId = resolveServerId(instanceKey);
+  if (serverId === null) return { rows: [] };
+  const rows = db.prepare(
+    `SELECT * FROM blocking_events WHERE server_id = ? AND ts >= ? AND ts <= ? ORDER BY ts, id`
+  ).all(serverId, fromMs, toMs);
+  return { rows };
+}
+
 const COUNTED_TABLES = ['samples_raw', 'samples_1m', 'samples_15m', 'samples_1h', 'waits_samples', 'blocking_events'];
 
 function health(now = Date.now()) {
@@ -264,4 +342,5 @@ function health(now = Date.now()) {
   }
 }
 
-module.exports = { initialize, insertSnapshot, rollup, prune, vacuum, checkpoint, health, close, _db };
+module.exports = { initialize, insertSnapshot, rollup, prune, vacuum, checkpoint, health,
+  getHistory, getWaitHistory, getBlockingHistory, pickResolution, close, _db };
