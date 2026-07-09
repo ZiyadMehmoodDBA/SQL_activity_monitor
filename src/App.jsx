@@ -10,6 +10,7 @@ import ConnectionTabBar from './components/ConnectionTabBar'
 import Dashboard from './components/Dashboard'
 import WidgetSidebar from './components/WidgetSidebar'
 import AlertToasts from './components/AlertToasts'
+import AlertPanel from './components/AlertPanel'
 
 export default function App() {
   const { state, dispatch } = useApp()
@@ -70,6 +71,7 @@ export default function App() {
       <ConnectModal open={showConnect} onClose={() => setShowConnect(false)} />
       <ReconnectModal connectionId={reconnectId} onClose={() => setReconnectId(null)} />
       <AlertToasts />
+      <AlertPanel open={showAlerts} onClose={() => setShowAlerts(false)} />
     </div>
   )
 }

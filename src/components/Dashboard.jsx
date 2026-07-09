@@ -297,7 +297,7 @@ function buildCharts(m, sp, conn, p) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export default memo(function Dashboard({ connId }) {
   const { state } = useApp()
-  const { connections, dispatch } = useConnections()
+  const { connections, dispatch, deepLink } = useConnections()
   const conn = connections[connId]
   const lastUpdated = useTimeSince(conn?.lastUpdate)
   const [bulkKill,   setBulkKill]   = useState(null)   // null | { count, confirmed }
@@ -317,6 +317,14 @@ export default memo(function Dashboard({ connId }) {
     setQueryView(null)
     setHistRange(null); setHistData(null); setHistError(null); setHistLoading(false);
   }, [connId])
+
+  // Deep-link from alert panel: jump to alert window in history mode
+  useEffect(() => {
+    if (!deepLink || deepLink.connId !== connId) return;
+    setHistRange({ key: 'custom', from: deepLink.from, to: deepLink.to });
+    dispatch({ type: 'CLEAR_DEEP_LINK' });
+  }, [deepLink, connId]);
+
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
     clearTimeout(killResultTimer.current)
