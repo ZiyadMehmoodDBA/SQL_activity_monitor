@@ -5,6 +5,7 @@ const path = require('node:path');
 const schema = require('./metricsSchema');
 const { runRollup } = require('./metricsRollup');
 const retention = require('./metricsRetention');
+const baselineCalc = require('./baselineCalc');
 
 let db = null;
 let enabled = false;
@@ -64,6 +65,32 @@ function prepareStatements() {
     metaSet: db.prepare(`
       INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
+
+    // --- alerting (migration v2) ---
+    serverIdByKey: db.prepare('SELECT id FROM servers WHERE instance_key = ?'),
+    recentKpiAvg: db.prepare(`
+      SELECT AVG(cpu_pct) AS cpu_pct, AVG(waiting_tasks) AS waiting_tasks,
+             AVG(io_mb) AS io_mb, AVG(batch_req) AS batch_req,
+             AVG(ple_sec) AS ple_sec, AVG(mem_grants_pending) AS mem_grants_pending,
+             COUNT(*) AS n
+      FROM samples_raw WHERE server_id = ? AND ts > ?
+    `),
+    allBaselines: db.prepare('SELECT * FROM baselines'),
+    baselinesByKpi: db.prepare(`
+      SELECT hour_of_week, mean, stddev, sample_count, computed_at
+      FROM baselines WHERE server_id = ? AND kpi = ? ORDER BY hour_of_week
+    `),
+    activeAlerts: db.prepare('SELECT * FROM alerts WHERE resolved_at IS NULL'),
+    activeAlertForPair: db.prepare('SELECT id FROM alerts WHERE server_id = ? AND kpi = ? AND resolved_at IS NULL'),
+    insertAlert: db.prepare(`
+      INSERT INTO alerts (server_id, kpi, started_at, peak_value, peak_at, baseline_mean, baseline_stddev, direction, severity)
+      VALUES (@serverId, @kpi, @startedAt, @value, @startedAt, @mean, @stddev, @direction, 'critical')
+    `),
+    updateAlertPeak: db.prepare('UPDATE alerts SET peak_value = ?, peak_at = ? WHERE id = ?'),
+    resolveAlert: db.prepare('UPDATE alerts SET resolved_at = ? WHERE id = ?'),
+    ackAlert: db.prepare('UPDATE alerts SET acked_at = COALESCE(acked_at, ?) WHERE id = ? AND server_id = ?'),
+    alertsActiveByServer: db.prepare('SELECT * FROM alerts WHERE server_id = ? AND resolved_at IS NULL ORDER BY started_at DESC'),
+    alertsRangeByServer: db.prepare('SELECT * FROM alerts WHERE server_id = ? AND started_at >= ? AND started_at <= ? ORDER BY started_at DESC'),
   };
 
   insertTx = db.transaction((instanceKey, displayName, metrics, now) => {
@@ -305,6 +332,98 @@ function getBlockingHistory(instanceKey, fromMs, toMs) {
   return { rows };
 }
 
+// ── Alert / baseline wrappers ─────────────────────────────────────────────────
+
+function recomputeBaselines(now = Date.now()) {
+  if (!enabled) return 0;
+  try {
+    const written = baselineCalc.recomputeBaselines(db, now);
+    stmts.metaSet.run('last_baseline_at', String(now), now);
+    return written;
+  } catch (e) {
+    console.error('[alerts] baseline recompute failed:', e.message);
+    return 0;
+  }
+}
+
+function getServerIdForKey(instanceKey) {
+  if (!enabled) return null;
+  try {
+    const row = stmts.serverIdByKey.get(instanceKey);
+    return row ? row.id : null;
+  } catch (e) { console.error('[alerts] getServerIdForKey failed:', e.message); return null; }
+}
+
+function getRecentKpiAverages(serverId, now = Date.now()) {
+  if (!enabled) return null;
+  try { return stmts.recentKpiAvg.get(serverId, now - 60_000); }
+  catch (e) { console.error('[alerts] getRecentKpiAverages failed:', e.message); return null; }
+}
+
+function getAllBaselines() {
+  if (!enabled) return [];
+  try { return stmts.allBaselines.all(); }
+  catch (e) { console.error('[alerts] getAllBaselines failed:', e.message); return []; }
+}
+
+function getBaselines(instanceKey, kpi) {
+  if (!enabled) return [];
+  try {
+    const serverId = getServerIdForKey(instanceKey);
+    if (serverId == null) return [];
+    return stmts.baselinesByKpi.all(serverId, kpi);
+  } catch (e) { console.error('[alerts] getBaselines failed:', e.message); return []; }
+}
+
+function getActiveAlerts() {
+  if (!enabled) return [];
+  try { return stmts.activeAlerts.all(); }
+  catch (e) { console.error('[alerts] getActiveAlerts failed:', e.message); return []; }
+}
+
+function getAlerts(instanceKey, { activeOnly = false, from = 0, to = Date.now() } = {}) {
+  if (!enabled) return [];
+  try {
+    const serverId = getServerIdForKey(instanceKey);
+    if (serverId == null) return [];
+    return activeOnly
+      ? stmts.alertsActiveByServer.all(serverId)
+      : stmts.alertsRangeByServer.all(serverId, from, to);
+  } catch (e) { console.error('[alerts] getAlerts failed:', e.message); return []; }
+}
+
+function openAlert({ serverId, kpi, startedAt, value, mean, stddev, direction }) {
+  if (!enabled) return null;
+  try {
+    if (stmts.activeAlertForPair.get(serverId, kpi)) return null; // dedupe invariant
+    const info = stmts.insertAlert.run({ serverId, kpi, startedAt, value, mean, stddev, direction });
+    return Number(info.lastInsertRowid);
+  } catch (e) { console.error('[alerts] openAlert failed:', e.message); return null; }
+}
+
+function updateAlertPeak(id, value, ts) {
+  if (!enabled) return;
+  try { stmts.updateAlertPeak.run(value, ts, id); }
+  catch (e) { console.error('[alerts] updateAlertPeak failed:', e.message); }
+}
+
+function resolveAlert(id, ts) {
+  if (!enabled) return;
+  try { stmts.resolveAlert.run(ts, id); }
+  catch (e) { console.error('[alerts] resolveAlert failed:', e.message); }
+}
+
+function ackAlert(instanceKey, alertId, now = Date.now()) {
+  if (!enabled) return false;
+  try {
+    const serverId = getServerIdForKey(instanceKey);
+    if (serverId == null) return false;
+    return stmts.ackAlert.run(now, alertId, serverId).changes > 0;
+  } catch (e) { console.error('[alerts] ackAlert failed:', e.message); return false; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const COUNTED_TABLES = ['samples_raw', 'samples_1m', 'samples_15m', 'samples_1h', 'waits_samples', 'blocking_events'];
 
 function health(now = Date.now()) {
@@ -343,4 +462,8 @@ function health(now = Date.now()) {
 }
 
 module.exports = { initialize, insertSnapshot, rollup, prune, vacuum, checkpoint, health,
-  getHistory, getWaitHistory, getBlockingHistory, pickResolution, close, _db };
+  getHistory, getWaitHistory, getBlockingHistory, pickResolution, close, _db,
+  // alerting / baselines
+  recomputeBaselines, getServerIdForKey, getRecentKpiAverages,
+  getAllBaselines, getBaselines, getActiveAlerts, getAlerts,
+  openAlert, updateAlertPeak, resolveAlert, ackAlert };

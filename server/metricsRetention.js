@@ -9,12 +9,14 @@ const RETENTION = [
   { table: 'samples_15m',     keepMs: 365 * DAY },
   { table: 'waits_samples',   keepMs: 90 * DAY },
   { table: 'blocking_events', keepMs: 365 * DAY },
+  { table: 'alerts',          keepMs: 365 * DAY, tsCol: 'started_at' },
 ];
 
 function prune(db, now = Date.now()) {
   const deleted = {};
   for (const r of RETENTION) {
-    deleted[r.table] = db.prepare(`DELETE FROM ${r.table} WHERE ts < ?`).run(now - r.keepMs).changes;
+    const col = r.tsCol || 'ts';
+    deleted[r.table] = db.prepare(`DELETE FROM ${r.table} WHERE ${col} < ?`).run(now - r.keepMs).changes;
   }
   return deleted;
 }
