@@ -9,7 +9,7 @@ function axFmt(v) {
   return String(Math.round(v))
 }
 
-export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps }) {
+export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps, events }) {
   const series = useMemo(() => {
     const data = history && history.length > 0 ? history : Array(60).fill(null)
     if (timestamps && history && history.length > 0 && timestamps.length === history.length) {
@@ -19,6 +19,17 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
   }, [history, timestamps, title])
 
   const options = useMemo(() => ({
+    annotations: (timestamps && events && events.length > 0) ? {
+      points: events.map(e => ({
+        x: e.ts,
+        y: 0,
+        marker: { size: 5, fillColor: '#ef4444', strokeColor: '#fff', strokeWidth: 1.5 },
+        label: {
+          text: '⛔', borderWidth: 0, offsetY: -4,
+          style: { background: 'transparent', fontSize: '10px' },
+        },
+      })),
+    } : {},
     chart: {
       type: 'area',
       toolbar:    { show: false },
@@ -93,7 +104,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
         },
       },
     },
-  }), [color, yMax, title, timestamps])
+  }), [color, yMax, title, timestamps, events])
 
   return (
     // overflow:hidden prevents ApexCharts from momentarily overflowing the card boundary,

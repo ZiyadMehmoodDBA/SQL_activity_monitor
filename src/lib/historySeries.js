@@ -19,6 +19,23 @@ export function buildHistorySeries(rows, resolution) {
   return { timestamps, series }
 }
 
+export function aggregateWaits(rows) {
+  const map = new Map()
+  for (const r of rows) {
+    const cur = map.get(r.wait_type) || {
+      wait_type: r.wait_type, wait_time_ms: 0, waiting_tasks_count: 0, signal_wait_time_ms: 0,
+    }
+    cur.wait_time_ms        += r.wait_time_ms        || 0
+    cur.waiting_tasks_count += r.waiting_tasks_count || 0
+    cur.signal_wait_time_ms += r.signal_wait_time_ms || 0
+    map.set(r.wait_type, cur)
+  }
+  const out = [...map.values()].sort((a, b) => b.wait_time_ms - a.wait_time_ms)
+  const total = out.reduce((s, r) => s + r.wait_time_ms, 0)
+  for (const r of out) r.wait_pct = total > 0 ? +((r.wait_time_ms / total) * 100).toFixed(1) : 0
+  return out
+}
+
 export const RANGE_PRESETS = [
   { key: '1h',  label: '1h',  ms: 3_600_000 },
   { key: '6h',  label: '6h',  ms: 6 * 3_600_000 },

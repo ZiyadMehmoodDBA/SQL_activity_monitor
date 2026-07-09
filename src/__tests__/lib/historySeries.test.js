@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildHistorySeries, RANGE_PRESETS } from '../../lib/historySeries'
+import { buildHistorySeries, RANGE_PRESETS, aggregateWaits } from '../../lib/historySeries'
 
 describe('buildHistorySeries', () => {
   it('maps raw rows to chart keys', () => {
@@ -34,5 +34,27 @@ describe('buildHistorySeries', () => {
     expect(RANGE_PRESETS.map(p => p.key)).toEqual(['1h', '6h', '24h', '7d', '30d'])
     expect(RANGE_PRESETS[0].ms).toBe(3_600_000)
     expect(RANGE_PRESETS[4].ms).toBe(30 * 86_400_000)
+  })
+})
+
+describe('aggregateWaits', () => {
+  it('sums deltas per wait_type and computes wait_pct, sorted desc', () => {
+    const rows = [
+      { ts: 1, wait_type: 'PAGEIOLATCH_SH', wait_time_ms: 100, waiting_tasks_count: 1, signal_wait_time_ms: 10 },
+      { ts: 2, wait_type: 'PAGEIOLATCH_SH', wait_time_ms: 200, waiting_tasks_count: 2, signal_wait_time_ms: 20 },
+      { ts: 2, wait_type: 'LCK_M_X',        wait_time_ms: 700, waiting_tasks_count: 5, signal_wait_time_ms: 0 },
+    ]
+    const agg = aggregateWaits(rows)
+    expect(agg).toHaveLength(2)
+    expect(agg[0].wait_type).toBe('LCK_M_X')
+    expect(agg[0].wait_time_ms).toBe(700)
+    expect(agg[0].wait_pct).toBe(70)
+    expect(agg[1].wait_time_ms).toBe(300)
+    expect(agg[1].waiting_tasks_count).toBe(3)
+    expect(agg[1].wait_pct).toBe(30)
+  })
+
+  it('empty input → empty array', () => {
+    expect(aggregateWaits([])).toEqual([])
   })
 })

@@ -11,7 +11,7 @@ import { WIDGET_REGISTRY } from '../lib/widgetRegistry'
 import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
 import HistoryRangePicker from './HistoryRangePicker'
-import { buildHistorySeries } from '../lib/historySeries'
+import { buildHistorySeries, aggregateWaits } from '../lib/historySeries'
 import JobsPanel from './JobsPanel'
 import QueryOptimizationSection from './QueryOptimizationSection'
 import SessionsPanel from './SessionsPanel'
@@ -310,6 +310,7 @@ export default memo(function Dashboard({ connId }) {
   const [histData, setHistData]       = useState(null)  // { resolution, timestamps, series, blocking, waits }
   const [histLoading, setHistLoading] = useState(false)
   const [histError, setHistError]     = useState(null)
+  const [blockDetail, setBlockDetail] = useState(null) // null | blocking_events row
   useEffect(() => {
     setTopN(10)
     setDbFilter('')
@@ -581,15 +582,18 @@ export default memo(function Dashboard({ connId }) {
             />
           </CollapsibleSection>
         )
-      case 'resource_waits':
+      case 'resource_waits': {
+        const histWaits = histRange && histData ? aggregateWaits(histData.waits) : null
         return (
-          <CollapsibleSection key={id} connId={connId} sectionId="waits" title="Resource Waits"
-            badge={<SectionBadge count={m?.currentWaits?.length ? m.currentWaits.reduce((s,r)=>s+r.session_count,0) : (m?.resourceWaits?.length || 0)} alertWhen={m?.currentWaits?.length > 0} />}>
-            <CurrentWaitsPanel rows={m?.currentWaits} />
-            <VirtualTable rows={sortedWaits} columns={TABLE_COLS.waits} height={240}
+          <CollapsibleSection key={id} connId={connId} sectionId="waits"
+            title={histRange ? 'Resource Waits — history range' : 'Resource Waits'}
+            badge={<SectionBadge count={histWaits ? histWaits.length : (m?.currentWaits?.length ? m.currentWaits.reduce((s,r)=>s+r.session_count,0) : (m?.resourceWaits?.length || 0))} alertWhen={!histRange && m?.currentWaits?.length > 0} />}>
+            {!histRange && <CurrentWaitsPanel rows={m?.currentWaits} />}
+            <VirtualTable rows={histWaits ?? sortedWaits} columns={TABLE_COLS.waits} height={240}
               sortCol={conn.sortState.waits.col} sortDir={conn.sortState.waits.dir} onSort={col => handleSort('waits', col)} />
           </CollapsibleSection>
         )
+      }
       case 'who_is_active':
         return <WhoIsActive key={id} connId={connId} />
       case 'backup_health':
@@ -697,6 +701,28 @@ export default memo(function Dashboard({ connId }) {
         </DialogContent>
       </Dialog>
 
+      {/* Blocking event detail dialog */}
+      <Dialog open={!!blockDetail} onOpenChange={open => !open && setBlockDetail(null)}>
+        <DialogContent style={{ maxWidth: 560 }}>
+          <DialogHeader>
+            <DialogTitle>Blocking event — {blockDetail ? new Date(blockDetail.ts).toLocaleString() : ''}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            {blockDetail && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                <p><strong>Blocker</strong> SPID {blockDetail.blocking_sid} — {blockDetail.blocker_login || '—'} @ {blockDetail.blocker_host || '—'} ({blockDetail.blocker_program || '—'})</p>
+                <p><strong>Blocked</strong> SPID {blockDetail.blocked_sid} — {blockDetail.blocked_login || '—'} @ {blockDetail.blocked_host || '—'}</p>
+                <p><strong>Wait</strong> {blockDetail.wait_type || '—'} · {blockDetail.wait_ms != null ? `${blockDetail.wait_ms.toLocaleString()} ms` : '—'} · {blockDetail.database_name || '—'} {blockDetail.parent_object ? `· ${blockDetail.parent_object}` : ''}</p>
+                <p style={{ marginTop: 10, fontWeight: 700 }}>Blocker query</p>
+                <pre className="font-mono" style={{ fontSize: 11, background: 'var(--input-bg)', padding: 10, borderRadius: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{blockDetail.blocker_query || '—'}</pre>
+                <p style={{ marginTop: 10, fontWeight: 700 }}>Blocked query</p>
+                <pre className="font-mono" style={{ fontSize: 11, background: 'var(--input-bg)', padding: 10, borderRadius: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{blockDetail.blocked_query || '—'}</pre>
+              </div>
+            )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+
       {/* Kill sleeping — result toast */}
       {killResult && (
         <div
@@ -776,10 +802,33 @@ export default memo(function Dashboard({ connId }) {
               timestamps={histRange ? (histData?.timestamps ?? []) : undefined}
               color={c.color}
               yMax={c.yMax}
+              events={histRange && c.histKey === 'cpu' ? (histData?.blocking ?? []) : undefined}
             />
           </div>
         ))}
       </div>
+
+      {histRange && histData && histData.blocking.length > 0 && (
+        <div className="mc mb-6" style={{ padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.065em', marginBottom: 8 }}>
+            Blocking events in range ({histData.blocking.length}) — marked ⛔ on the CPU chart
+          </div>
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+            {histData.blocking.map(b => (
+              <button key={b.id} onClick={() => setBlockDetail(b)}
+                className="flex items-center gap-3 w-full text-left px-2 py-1.5 rounded hover:bg-black/5"
+                style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                <span className="tabular-nums" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                  {new Date(b.ts).toLocaleString()}
+                </span>
+                <span style={{ fontWeight: 600, color: '#ef4444' }}>SPID {b.blocking_sid} → {b.blocked_sid}</span>
+                <span className="font-mono" style={{ fontSize: 11 }}>{b.wait_type || '—'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{b.database_name || ''}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Query Optimization widgets */}
       {showQueryOpt && (
