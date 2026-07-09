@@ -27,10 +27,11 @@ Persist metrics server-side in an embedded SQLite database so that:
 | Question | Decision |
 |---|---|
 | Storage engine | `better-sqlite3` (synchronous, WAL). `node:sqlite` rejected (experimental in Node 22); JSON files rejected (no range queries, rewrite-per-poll). |
-| What to persist | Scalar KPIs + wait stats + blocking events. Per-session process lists and expensive-query recordsets are NOT persisted. |
-| History identity | Keyed by **server name** (e.g. `10.140.13.9`), not profile UUID. History survives profile delete/re-add; profiles pointing at the same server share history. Mirrors `db-size-history.json`. |
+| What to persist | Scalar KPIs + wait stats (as deltas) + blocking events. Per-session process lists and expensive-query recordsets are NOT persisted. |
+| History identity | Keyed by **instance key** — `@@SERVERNAME` queried once per connection after the pool opens (falls back to the profile's server string if that query fails). Stable across IP changes, DNS renames, and connection-string edits; profiles pointing at the same instance share history. `display_name` stored separately for UI. |
 | UI scope | History mode on the existing charts (time-range picker), not a separate page. |
-| Timestamps | `INTEGER` epoch **milliseconds** everywhere. Never ISO strings. |
+| Timestamps | `INTEGER` epoch **milliseconds** everywhere (epoch is UTC by definition; no local-time values stored). Never ISO strings. |
+| Wait stats | Stored as **deltas** between consecutive samples, not cumulative DMV values — historical graphs need per-interval values, not staircases. |
 
 ## Architecture
 
@@ -43,9 +44,11 @@ server/
 data/metrics.db          — the database (data/ is gitignored)
 ```
 
-- `collectMetrics()` stays in `server.js`. The poll loop gains one call:
-  `metricsStore.insertSnapshot(serverName, metrics)`. No SQL exists outside
-  the store modules.
+- `collectMetrics()` stays in `server.js`. After a pool connects, `server.js`
+  queries `SELECT @@SERVERNAME` once and stores the result as
+  `conn.instanceKey` (fallback: the profile's server string). The poll loop
+  gains one call: `metricsStore.insertSnapshot(instanceKey, displayName, metrics)`.
+  No SQL exists outside the store modules.
 - No queue, no worker thread, no batching. At 2s polls × ~10 servers,
   synchronous inserts cost microseconds under WAL.
 
@@ -53,10 +56,10 @@ data/metrics.db          — the database (data/ is gitignored)
 
 ```
 initialize(dbPath)      — open DB, apply PRAGMAs, run migrations, prepare statements
-insertSnapshot(serverName, metrics)
-getHistory(serverName, fromMs, toMs, resolution)
-getWaitHistory(serverName, fromMs, toMs)
-getBlockingHistory(serverName, fromMs, toMs)
+insertSnapshot(instanceKey, displayName, metrics)
+getHistory(instanceKey, fromMs, toMs, resolution)
+getWaitHistory(instanceKey, fromMs, toMs)
+getBlockingHistory(instanceKey, fromMs, toMs)
 rollup()                — called by hourly maintenance timer
 prune()                 — called by hourly maintenance timer
 vacuum()                — daily
@@ -82,8 +85,17 @@ runs sequential migrations when `user_version` is behind.
 
 ```sql
 CREATE TABLE servers (
-  id          INTEGER PRIMARY KEY,
-  server_name TEXT NOT NULL UNIQUE
+  id           INTEGER PRIMARY KEY,
+  instance_key TEXT NOT NULL UNIQUE,   -- @@SERVERNAME (fallback: profile server string)
+  display_name TEXT,                    -- latest profile displayName, updated on connect
+  first_seen   INTEGER NOT NULL,       -- epoch ms
+  last_seen    INTEGER NOT NULL
+);
+
+CREATE TABLE schema_migrations (
+  version     INTEGER PRIMARY KEY,
+  applied_at  INTEGER NOT NULL,        -- epoch ms
+  description TEXT NOT NULL
 );
 
 -- One row per poll (2s cadence)
@@ -118,14 +130,15 @@ CREATE TABLE samples_1m (
 ) WITHOUT ROWID;
 -- samples_15m and samples_1h: same shape.
 
--- Wait stats: written at most once per 60s per server
+-- Wait stats: written at most once per 60s per server. All three metric
+-- columns are DELTAS since the previous sample, not cumulative DMV values.
 CREATE TABLE waits_samples (
   server_id           INTEGER NOT NULL REFERENCES servers(id),
   ts                  INTEGER NOT NULL,
   wait_type           TEXT NOT NULL,
-  wait_time_ms        INTEGER,
-  waiting_tasks_count INTEGER,
-  signal_wait_time_ms INTEGER,
+  wait_time_ms        INTEGER,          -- delta
+  waiting_tasks_count INTEGER,          -- delta
+  signal_wait_time_ms INTEGER,          -- delta
   PRIMARY KEY (server_id, ts, wait_type)
 ) WITHOUT ROWID;
 CREATE INDEX ix_waits_type ON waits_samples (server_id, wait_type, ts);
@@ -161,11 +174,20 @@ CREATE TABLE rollup_state (
 
 -- Diagnostics
 CREATE TABLE meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL           -- epoch ms
 );
--- rows: created_at, last_rollup_at, last_prune_at, last_vacuum_at
+-- rows: created_at, last_rollup_at, last_prune_at, last_vacuum_at,
+--       last_checkpoint_at, last_insert_at, insert_error_count
 ```
+
+All writes go through prepared statements created once in `initialize()` and
+held for the process lifetime. The `instance_key → server_id` cache is a
+per-process Map populated on first insert; a renamed instance produces a new
+`instance_key` and therefore a new `servers` row (old history remains under
+the old key); disconnecting a server simply leaves its cache entry unused —
+no invalidation needed since ids never change.
 
 No further indexes. Time-series SQLite slows from over-indexing, not inserts.
 
@@ -176,16 +198,26 @@ poll (2s) → collectMetrics() → insertSnapshot()  ← single transaction
                              → io.emit('metricsUpdated')  (unchanged)
 ```
 
-`insertSnapshot` in one transaction:
+`insertSnapshot` in one transaction, ordered so that if it ever aborts
+partway, event data (blocking) is preserved ahead of periodic telemetry
+(waits):
 
-1. Upsert `servers` row (cached in a Map after first hit).
+1. Upsert `servers` row (per-process `instance_key → server_id` Map cache;
+   `display_name`/`last_seen` refreshed on connect).
 2. Insert `samples_raw` row from scalar KPIs + `metrics.serverPerf`.
-3. If ≥60s since last waits write for this server: insert `metrics.resourceWaits`
-   rows (top 25) into `waits_samples`.
-4. If `metrics.blocking` is non-empty: insert one `blocking_events` row per
-   blocking pair. Dedupe guard: skip if an identical
-   (blocking_sid, blocked_sid) pair was written for this server within the
-   last 60s, so a long block does not insert 30 rows/minute.
+3. If `metrics.blocking` is non-empty: insert one `blocking_events` row per
+   blocking pair. Dedupe guard: skip only if the identical tuple
+   **(blocking_sid, blocked_sid, wait_type, database_name)** was written for
+   this server within the last 60s — a long-running block does not insert 30
+   rows/minute, but the same blocker hitting a new victim (or a new wait
+   type/database) is recorded immediately.
+4. If ≥60s since last waits write for this server: compute per-wait-type
+   **deltas** against the previous cumulative snapshot (held in store memory,
+   like the poll loop's `prevIO`) and insert into `waits_samples`.
+   - First sample after connect: no previous snapshot → establish baseline,
+     write nothing.
+   - Any negative delta (SQL Server restart or `DBCC SQLPERF` clear reset the
+     counters): re-baseline, skip that write.
 
 ### Error handling
 
@@ -196,13 +228,23 @@ poll (2s) → collectMetrics() → insertSnapshot()  ← single transaction
 
 ## Rollup + retention
 
-Hourly maintenance timer (same pattern as the existing `snapshotHandle`):
+Maintenance runs **clock-aligned at HH:05** (startup computes the delay to
+the next HH:05, then repeats every 60 min) — restarts do not drift the
+schedule, and multiple monitored servers roll up at the same wall-clock
+moment:
 
 1. **Rollup** (`metricsRollup.js`), per server, per resolution, watermark-driven:
+   - Bucket boundaries are **fixed to epoch multiples** of the resolution
+     (`bucket_ts = ts - ts % 60000` for 1m, etc.) — never relative to
+     application start time.
    - `1m` ← aggregate `samples_raw` buckets fully in the past, starting after
      `rollup_state.watermark_ts`; advance watermark.
    - `15m` ← from `samples_1m` (avg of avgs weighted by `sample_count`,
      min of mins, max of maxes). `1h` ← from `samples_15m`.
+   - **NULL handling:** NULL KPI values are ignored by avg/min/max (SQL
+     aggregate semantics); they never count as zero. `sample_count` records
+     the number of contributing rows per bucket. A bucket where every value
+     of a KPI is NULL stores NULL for that KPI's triplet.
    - Idempotent: re-running after a crash re-aggregates from the watermark;
      `INSERT OR REPLACE` prevents duplicates.
 2. **Prune** (`metricsRetention.js`):
@@ -216,17 +258,22 @@ Hourly maintenance timer (same pattern as the existing `snapshotHandle`):
    | waits_samples | 90 days |
    | blocking_events | 1 year |
 
-3. **Daily** (first maintenance run after 03:00 local): `VACUUM`, then
-   `PRAGMA wal_checkpoint(TRUNCATE)` so the WAL file cannot grow unbounded.
-   Timestamps of each recorded in `meta`.
+3. **Daily** (first maintenance run after 03:00 local):
+   - `VACUUM` **only when worthwhile**: run if
+     `PRAGMA freelist_count > max(10000, page_count / 4)` — i.e. more than
+     25% of the file (or >10k pages) is reclaimable. Otherwise skip; VACUUM
+     rewrites the whole file and is wasted work on a compact database.
+   - `PRAGMA wal_checkpoint(TRUNCATE)` always, so the WAL file cannot grow
+     unbounded.
+   - Timestamps of each recorded in `meta` (with `updated_at`).
 
 Expected steady-state size: low hundreds of MB for ~10 servers.
 
 ## API
 
-All endpoints resolve `:id` (live connection) → `server_name`, then query the
-store. `from`/`to` validated as positive integers (epoch ms); `to` defaults to
-now, `from` defaults to `to - 1h`. Invalid input → 400.
+All endpoints resolve `:id` (live connection) → `instance_key`, then query
+the store. `from`/`to` validated as positive integers (epoch ms); `to`
+defaults to now, `from` defaults to `to - 1h`. Invalid input → 400.
 
 ```
 GET /api/connections/:id/history?from=&to=&resolution=auto|raw|1m|15m|1h
@@ -249,9 +296,12 @@ no rollup rows yet. `getHistory` at 1m/15m/1h fills the tail past the rollup
 watermark by aggregating `samples_raw` on the fly with the same avg/min/max
 SQL, so charts never show a hole at the right edge.
 
-`GET /api/persistence/status` returns: enabled flag, db file size, WAL size,
-schema version, per-server oldest/newest raw sample, row counts per table,
-last rollup/prune/vacuum timestamps (from `meta`).
+`GET /api/persistence/status` returns: enabled flag, db file size, WAL file
+size, `freelist_count`/`page_count` (fragmentation), schema version +
+migration history, per-server oldest/newest raw sample, row counts per table,
+last successful insert timestamp, cumulative insert error count, current raw
+insert rate (rows/sec over the last minute), last
+rollup/prune/vacuum/checkpoint timestamps (from `meta`).
 
 ## UI — history mode
 
@@ -273,9 +323,13 @@ Range picker in the chart section header: `Live | 1h | 6h | 24h | 7d | 30d | Cus
 Vitest, node environment, store tested against `:memory:` SQLite:
 
 - **metricsStore**: insertSnapshot writes KPI row; waits respect the 60s
-  cadence; blocking dedupe window works; disabled mode is a no-op.
+  cadence; wait deltas computed correctly (first sample = baseline only,
+  negative delta after counter reset = re-baseline, no row); blocking dedupe
+  tuple works (same pair suppressed, new victim/wait_type recorded);
+  disabled mode is a no-op.
 - **metricsRollup**: synthetic raw samples → assert 1m avg/min/max math,
-  watermark advance, idempotent re-run, 1m→15m weighted averaging.
+  epoch-aligned bucket boundaries, NULLs ignored (not zero), watermark
+  advance, idempotent re-run, 1m→15m weighted averaging.
 - **metricsRetention**: rows older than each cutoff removed, newer retained.
 - **API**: history endpoints with a stubbed store — resolution auto-selection,
   input validation, 404 on unknown connection.
