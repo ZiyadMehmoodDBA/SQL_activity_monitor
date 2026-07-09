@@ -9,12 +9,14 @@ import ConnectionSidebar from './components/ConnectionSidebar'
 import ConnectionTabBar from './components/ConnectionTabBar'
 import Dashboard from './components/Dashboard'
 import WidgetSidebar from './components/WidgetSidebar'
+import AlertToasts from './components/AlertToasts'
 
 export default function App() {
   const { state, dispatch } = useApp()
   const { profiles, selectedConnectionId, selectedConnection, isInitializing } = useConnections()
   const [showConnect, setShowConnect] = useState(false)
   const [showWidgets, setShowWidgets] = useState(false)
+  const [showAlerts, setShowAlerts] = useState(false)
   const [reconnectId, setReconnectId] = useState(null)
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function App() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--body-bg)', color: 'var(--body-text)' }}>
       <div className="sticky top-0 z-50">
-        <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} />
+        <Header connected={isConnected} onToggleWidgets={() => setShowWidgets(v => !v)} widgetSidebarOpen={showWidgets} onOpenAlerts={() => setShowAlerts(true)} />
         <ConnectionTabBar onAddConnection={() => { closeSidebar(); setShowConnect(true) }} />
       </div>
       <WidgetSidebar open={showWidgets} onClose={() => setShowWidgets(false)} />
@@ -67,6 +69,7 @@ export default function App() {
 
       <ConnectModal open={showConnect} onClose={() => setShowConnect(false)} />
       <ReconnectModal connectionId={reconnectId} onClose={() => setReconnectId(null)} />
+      <AlertToasts />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext'
 import { PALETTES, applyPalette } from '../lib/palettes'
 import { LayoutDashboard, RefreshCw } from 'lucide-react'
 import { useConnections } from '../context/ConnectionContext'
+import AlertBell from './AlertBell.jsx'
 
 function PaletteItem({ name, swatch, isActive, onClick }) {
   const [hovered, setHovered] = useState(false)
@@ -46,7 +47,7 @@ function PaletteItem({ name, swatch, isActive, onClick }) {
   )
 }
 
-export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }) {
+export default function Header({ connected, onToggleWidgets, widgetSidebarOpen, onOpenAlerts }) {
   const { state, dispatch } = useApp()
   const { isRefreshing, refreshAllConnections } = useConnections()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -118,6 +119,9 @@ export default function Header({ connected, onToggleWidgets, widgetSidebarOpen }
           <LayoutDashboard size={14} />
           <span>Widgets</span>
         </button>
+
+        {/* Alert bell */}
+        <AlertBell onClick={onOpenAlerts} />
 
         {/* Palette picker */}
         <div className="relative flex-shrink-0" ref={menuRef}>
