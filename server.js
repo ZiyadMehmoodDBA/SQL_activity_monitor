@@ -9,6 +9,8 @@ const fs         = require('fs');
 
 const { MemoryScanStore }   = require('./server/indexScanStore.js')
 const { runScan, calcProgressPct, paginateResults, SCAN_TTL_MS } = require('./server/indexScanOrchestrator.js')
+const metricsStore = require('./server/metricsStore');
+const { parseHistoryRange, VALID_RESOLUTIONS } = require('./server/historyRange');
 
 const PORT    = parseInt(process.env.PORT)              || 3000;
 // Bind localhost-only by default: every API endpoint is unauthenticated, so
@@ -101,6 +103,7 @@ const missingIndexCache = new Map() // Map<connId, { rows, ts, expiresAt }>
 const MISSING_INDEX_CACHE_MS = Math.max(1, parseInt(process.env.MISSING_INDEX_CACHE_MIN || '10') || 10) * 60 * 1000
 
 const scanStore = new MemoryScanStore()
+metricsStore.initialize(path.join(__dirname, 'data', 'metrics.db'));
 
 setInterval(() => {
   const n = scanStore.cleanup(Date.now())
@@ -791,6 +794,15 @@ app.post('/api/connect', async (req, res) => {
       'SET DEADLOCK_PRIORITY LOW; SET LOCK_TIMEOUT 2000; SET XACT_ABORT ON;'
     ).catch(e => console.warn('[session-init]', e.message));
 
+    // History identity: @@SERVERNAME survives IP/DNS/connection-string changes.
+    let instanceKey = server;
+    try {
+      const r = await pool.request().query('SELECT @@SERVERNAME AS name');
+      if (r.recordset?.[0]?.name) instanceKey = r.recordset[0].name;
+    } catch (e) {
+      console.warn('[metrics-db] @@SERVERNAME failed, using profile server string:', e.message);
+    }
+
     // Honour client-supplied stable ID so the browser can reconnect without
     // Dashboard remounting (key stays the same). Validate UUID format to be safe.
     // If an old connection with this ID is still alive, evict it first.
@@ -812,7 +824,7 @@ app.post('/api/connect', async (req, res) => {
     const displayLabel = label?.trim() || server;
 
     const conn = {
-      pool, label: displayLabel, server,
+      pool, label: displayLabel, server, instanceKey,
       database:  database  || 'master',
       color:     color     || '#3b82f6',
       appIntent: appIntent || 'ReadWrite',
@@ -828,6 +840,7 @@ app.post('/api/connect', async (req, res) => {
         const metrics = await collectMetrics(c.pool, c.prevIO, c.prevNet);
         c.prevIO  = metrics._prevIO;  delete metrics._prevIO;
         c.prevNet = metrics._prevNet; delete metrics._prevNet;
+        metricsStore.insertSnapshot(c.instanceKey, c.label, metrics);
         io.to(`conn:${id}`).emit('metricsUpdated', {
           connectionId: id, refreshRequestId, metrics, timestamp: Date.now(),
         });
@@ -997,6 +1010,37 @@ app.get('/api/connections/:id/db-size-history', (req, res) => {
   const history = loadDbHistory();
   const serverData = history[conn.server] || {};
   res.json(serverData);
+});
+
+// ─── Metrics history (SQLite persistence) ─────────────────────────────────────
+app.get('/api/connections/:id/history', (req, res) => {
+  const conn = requireConn(req, res);
+  if (!conn) return;
+  const range = parseHistoryRange(req.query);
+  if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  const resolution = req.query.resolution || 'auto';
+  if (!VALID_RESOLUTIONS.includes(resolution)) return res.status(400).json({ error: 'Invalid resolution.' });
+  res.json(metricsStore.getHistory(conn.instanceKey || conn.server, range.from, range.to, resolution));
+});
+
+app.get('/api/connections/:id/history/waits', (req, res) => {
+  const conn = requireConn(req, res);
+  if (!conn) return;
+  const range = parseHistoryRange(req.query);
+  if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  res.json(metricsStore.getWaitHistory(conn.instanceKey || conn.server, range.from, range.to));
+});
+
+app.get('/api/connections/:id/history/blocking', (req, res) => {
+  const conn = requireConn(req, res);
+  if (!conn) return;
+  const range = parseHistoryRange(req.query);
+  if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  res.json(metricsStore.getBlockingHistory(conn.instanceKey || conn.server, range.from, range.to));
+});
+
+app.get('/api/persistence/status', (_req, res) => {
+  res.json(metricsStore.health());
 });
 
 app.get('/api/connections/:id/error-log', async (req, res) => {
@@ -1179,6 +1223,42 @@ io.on('connection', socket => {
   socket.on('unsubscribe', connId => {
     if (typeof connId === 'string' && UUID_RE.test(connId)) socket.leave(`conn:${connId}`);
   });
+});
+
+// ─── Metrics persistence maintenance — clock-aligned at HH:05 ────────────────
+function runMetricsMaintenance() {
+  try {
+    metricsStore.rollup();
+    metricsStore.prune();
+    const h = metricsStore.health();
+    if (h.enabled && !h.error) {
+      // Daily housekeeping on the first HH:05 run after 03:00 local.
+      const today3am = new Date(); today3am.setHours(3, 0, 0, 0);
+      const lastCheckpoint = Number(h.meta.last_checkpoint_at || 0);
+      if (Date.now() >= today3am.getTime() && lastCheckpoint < today3am.getTime()) {
+        metricsStore.vacuum();
+        metricsStore.checkpoint();
+      }
+    }
+  } catch (e) {
+    console.error('[metrics-db] maintenance failed:', e.message);
+  }
+}
+
+(function scheduleMetricsMaintenance() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(5, 0, 0);
+  if (next <= now) next.setHours(next.getHours() + 1);
+  setTimeout(function run() {
+    runMetricsMaintenance();
+    setTimeout(run, 60 * 60 * 1000);
+  }, next - now);
+})();
+
+process.on('SIGINT', () => {
+  metricsStore.close();
+  process.exit(0);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
