@@ -10,9 +10,13 @@ function axFmt(v) {
 }
 
 export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps, events, band }) {
+  const hasBand = useMemo(
+    () => Boolean(timestamps && band && band.some((p) => p.y)),
+    [timestamps, band]
+  )
+
   const series = useMemo(() => {
     const data = history && history.length > 0 ? history : Array(60).fill(null)
-    const hasBand = Boolean(timestamps && band && band.some((p) => p.y))
     if (timestamps && history && history.length > 0 && timestamps.length === history.length) {
       const points = history.map((y, i) => ({ x: timestamps[i], y }))
       if (hasBand) {
@@ -24,9 +28,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
       return [{ name: title, data: points }]
     }
     return [{ name: title, data }]
-  }, [history, timestamps, title, band])
-
-  const hasBand = Boolean(timestamps && band && band.some((p) => p.y))
+  }, [history, timestamps, title, band, hasBand])
 
   const options = useMemo(() => ({
     annotations: (timestamps && events && events.length > 0) ? {

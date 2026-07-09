@@ -468,6 +468,18 @@ export default memo(function Dashboard({ connId }) {
 
   const sortedByKey = { fileio: sortedFileio, recent: filteredRecent, active: sortedActive, blocking: filteredBlocking, deadlocks: sortedDeadlocks, cpu: filteredCpu, tempdb: sortedTempdb }
 
+  // Hoist band computation: compute bandData for all HIST_KPI_BY_CHART keys once,
+  // keyed by chartKey. Avoids new array references per-chart per render (defeats ChartCard memo).
+  const bands = useMemo(() => {
+    const timestamps = histData?.timestamps ?? []
+    return Object.fromEntries(
+      Object.keys(HIST_KPI_BY_CHART).map((chartKey) => [
+        chartKey,
+        histBaselines[chartKey] ? bandData(histBaselines[chartKey], timestamps) : undefined,
+      ])
+    )
+  }, [histBaselines, histData?.timestamps])
+
   const backupCritCount = useMemo(
     () => (m?.backupHealth || []).filter(r => {
       const fullCrit = ageMs(r.last_full) > FULL_CRIT_MS
@@ -827,7 +839,7 @@ export default memo(function Dashboard({ connId }) {
               color={c.color}
               yMax={c.yMax}
               events={histRange && c.histKey === 'cpu' ? (histData?.blocking ?? []) : undefined}
-              band={histRange && histBaselines[c.histKey] ? bandData(histBaselines[c.histKey], histData?.timestamps ?? []) : undefined}
+              band={histRange ? bands[c.histKey] : undefined}
             />
           </div>
         ))}
