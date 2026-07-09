@@ -1452,22 +1452,22 @@ function fmtCell(val, type) {
   switch(type){
     case 'num': return `<span class="tabular-nums">${Math.round(val).toLocaleString()}</span>`;
     case 'dec': return `<span class="tabular-nums">${parseFloat(val).toFixed(1)}</span>`;
-    case 'zero': return val&&val!==0?`<span class="text-red-600 font-medium tabular-nums">${val}</span>`:'<span class="text-slate-300">—</span>';
+    case 'zero': return val&&val!==0?`<span class="text-red-600 font-medium tabular-nums">${escapeHtml(val)}</span>`:'<span class="text-slate-300">—</span>';
     case 'badge':{
       const s=String(val).toLowerCase();
       const cls=s==='running'?'status-running':s==='suspended'?'status-suspended':s==='sleeping'?'status-sleeping':s==='background'?'status-background':'status-other';
-      return `<span class="px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${cls}">${val}</span>`;
+      return `<span class="px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${cls}">${escapeHtml(val)}</span>`;
     }
     case 'query':{
       const c=String(val).replace(/\s+/g,' ').trim();
       const sh=c.length>60?c.slice(0,60)+'…':c;
-      return `<span class="query-cell block" title="${c.replace(/"/g,'&quot;')}">${sh||'<span class="text-slate-300">—</span>'}</span>`;
+      return `<span class="query-cell block" title="${escapeHtml(c)}">${escapeHtml(sh)||'<span class="text-slate-300">—</span>'}</span>`;
     }
     case 'trunc':{
       const s=String(val);
-      return `<span class="trunc-cell block" title="${s.replace(/"/g,'&quot;')}">${s||'—'}</span>`;
+      return `<span class="trunc-cell block" title="${escapeHtml(s)}">${escapeHtml(s)||'—'}</span>`;
     }
-    default: return String(val)||'<span class="text-slate-300">—</span>';
+    default: return escapeHtml(val)||'<span class="text-slate-300">—</span>';
   }
 }
 
@@ -2182,10 +2182,10 @@ function refreshSessionDetail() {
       <td style="${TDs}font-weight:600;">${r.session_id}</td>
       ${hostCols}
       <td style="${TDs}">${fmtStatus(r.status)}</td>
-      <td style="${TDs}">${r.command||'—'}</td>
+      <td style="${TDs}">${escapeHtml(r.command||'—')}</td>
       <td style="${TDs}font-variant-numeric:tabular-nums;">${(r.cpu_time||0).toLocaleString()}</td>
       <td style="${TDs}font-variant-numeric:tabular-nums;">${(r.memory_kb||0).toLocaleString()} KB</td>
-      <td style="${TDs}">${r.wait_type||'—'}</td>
+      <td style="${TDs}">${escapeHtml(r.wait_type||'—')}</td>
       <td style="${TDs}max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(q)}">${escapeHtml(qShort)||'—'}</td>
     </tr>`;
   }).join('');
