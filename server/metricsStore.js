@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const schema = require('./metricsSchema');
+const { runRollup } = require('./metricsRollup');
 
 let db = null;
 let enabled = false;
@@ -186,4 +187,14 @@ function close() {
 
 function _db() { return db; }
 
-module.exports = { initialize, insertSnapshot, close, _db };
+function rollup(now = Date.now()) {
+  if (!enabled) return;
+  try {
+    runRollup(db, now);
+    stmts.metaSet.run('last_rollup_at', String(now), now);
+  } catch (err) {
+    console.error('[metrics-db] rollup failed:', err.message);
+  }
+}
+
+module.exports = { initialize, insertSnapshot, rollup, close, _db };
