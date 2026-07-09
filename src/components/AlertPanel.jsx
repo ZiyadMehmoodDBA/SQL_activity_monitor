@@ -14,6 +14,7 @@ function fmtDuration(ms) {
 function AlertRow({ a, muted, onDeepLink, onAck }) {
   return (
     <div
+      role="button"
       tabIndex={0}
       onClick={() => onDeepLink(a)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDeepLink(a); }}

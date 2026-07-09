@@ -33,13 +33,13 @@ describe('AlertPanel', () => {
   it('renders active alerts with Ack button and resolved history', async () => {
     render(<AlertPanel open onClose={() => {}} />);
     expect(screen.getByText(/CPU/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ack/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ack' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/DB I\/O/)).toBeInTheDocument()); // resolved row fetched
   });
 
   it('Ack POSTs and dispatches ALERT_ACKED', async () => {
     render(<AlertPanel open onClose={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: /ack/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ack' }));
     await waitFor(() =>
       expect(mockDispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'ALERT_ACKED', connId: CONN, alertId: 1 }))
     );
