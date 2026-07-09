@@ -33,10 +33,11 @@ describe('metricsSchema', () => {
       'rollup_state', 'meta']) {
       expect(tables).toContain(t)
     }
-    expect(db.pragma('user_version', { simple: true })).toBe(1)
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
     const mig = db.prepare('SELECT version, description FROM schema_migrations').all()
-    expect(mig).toHaveLength(1)
+    expect(mig).toHaveLength(2)
     expect(mig[0].version).toBe(1)
+    expect(mig[1].version).toBe(2)
   })
 
   it('rollup tables have avg/min/max triplets per KPI plus sample_count', () => {
@@ -54,6 +55,47 @@ describe('metricsSchema', () => {
   it('migrate is idempotent', () => {
     migrate(db)
     expect(() => migrate(db)).not.toThrow()
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get().n).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get().n).toBe(2)
+  })
+})
+
+describe('migration v2 (alerting)', () => {
+  let db
+  beforeEach(() => { db = new Database(':memory:') })
+
+  it('creates baselines and alerts tables and bumps user_version to 2', () => {
+    migrate(db)
+    const tables = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('baselines','alerts')"
+    ).all().map((r) => r.name).sort()
+    expect(tables).toEqual(['alerts', 'baselines'])
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
+    db.close()
+  })
+
+  it('baselines has composite PK columns and alerts has severity default critical', () => {
+    migrate(db)
+    const bCols = db.prepare('SELECT name FROM pragma_table_info(?)').all('baselines').map((r) => r.name)
+    expect(bCols).toEqual(['server_id', 'kpi', 'hour_of_week', 'mean', 'stddev', 'sample_count', 'computed_at'])
+    const aCols = db.prepare('SELECT name FROM pragma_table_info(?)').all('alerts').map((r) => r.name)
+    expect(aCols).toEqual(['id', 'server_id', 'kpi', 'started_at', 'resolved_at', 'peak_value', 'peak_at', 'baseline_mean', 'baseline_stddev', 'direction', 'severity', 'acked_at'])
+    db.prepare("INSERT INTO servers (instance_key, display_name, first_seen, last_seen) VALUES ('S','S',0,0)").run()
+    db.prepare("INSERT INTO alerts (server_id, kpi, started_at, direction) VALUES (1, 'cpu_pct', 0, 'above')").run()
+    expect(db.prepare('SELECT severity FROM alerts').get().severity).toBe('critical')
+    db.close()
+  })
+
+  it('migrate is idempotent at v2', () => {
+    migrate(db)
+    migrate(db)
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
+    db.close()
+  })
+
+  it('has index ix_alerts_server', () => {
+    migrate(db)
+    const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_alerts_server'").get()
+    expect(idx).toBeTruthy()
+    db.close()
   })
 })

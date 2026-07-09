@@ -99,6 +99,41 @@ const MIGRATIONS = [
         .run(String(Date.now()), Date.now());
     },
   },
+  {
+    version: 2,
+    description: 'alerting: baselines + alerts tables',
+    up(db) {
+      db.exec(`
+        CREATE TABLE baselines (
+          server_id    INTEGER NOT NULL REFERENCES servers(id),
+          kpi          TEXT    NOT NULL,
+          hour_of_week INTEGER NOT NULL,
+          mean         REAL    NOT NULL,
+          stddev       REAL    NOT NULL,
+          sample_count INTEGER NOT NULL,
+          computed_at  INTEGER NOT NULL,
+          PRIMARY KEY (server_id, kpi, hour_of_week)
+        ) WITHOUT ROWID;
+
+        CREATE TABLE alerts (
+          id              INTEGER PRIMARY KEY,
+          server_id       INTEGER NOT NULL REFERENCES servers(id),
+          kpi             TEXT    NOT NULL,
+          started_at      INTEGER NOT NULL,
+          resolved_at     INTEGER,
+          peak_value      REAL,
+          peak_at         INTEGER,
+          baseline_mean   REAL,
+          baseline_stddev REAL,
+          direction       TEXT NOT NULL,
+          severity        TEXT NOT NULL DEFAULT 'critical',
+          acked_at        INTEGER
+        );
+
+        CREATE INDEX ix_alerts_server ON alerts (server_id, started_at);
+      `);
+    },
+  },
 ];
 
 function applyPragmas(db) {
