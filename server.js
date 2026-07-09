@@ -1057,14 +1057,14 @@ app.get('/api/connections/:id/alerts', (req, res) => {
   const c = requireConn(req, res);
   if (!c) return;
   if (req.query.active === '1') {
-    return res.json({ alerts: metricsStore.getAlerts(c.instanceKey, { activeOnly: true }) });
+    return res.json({ alerts: metricsStore.getAlerts(c.instanceKey || c.server, { activeOnly: true }) });
   }
   const range = parseHistoryRange(req.query);
   if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
   if (range.to - range.from > MAX_HISTORY_SPAN_MS) {
     return res.status(400).json({ error: 'range too large (max 90 days)' });
   }
-  res.json({ alerts: metricsStore.getAlerts(c.instanceKey, { from: range.from, to: range.to }) });
+  res.json({ alerts: metricsStore.getAlerts(c.instanceKey || c.server, { from: range.from, to: range.to }) });
 });
 
 app.post('/api/connections/:id/alerts/:alertId/ack', (req, res) => {
@@ -1072,7 +1072,7 @@ app.post('/api/connections/:id/alerts/:alertId/ack', (req, res) => {
   if (!c) return;
   const alertId = parseAlertId(req.params.alertId);
   if (alertId == null) return res.status(400).json({ error: 'Invalid alert id' });
-  const ok = metricsStore.ackAlert(c.instanceKey, alertId, Date.now());
+  const ok = metricsStore.ackAlert(c.instanceKey || c.server, alertId, Date.now());
   if (!ok) return res.status(404).json({ error: 'Alert not found' });
   res.json({ ok: true });
 });
@@ -1082,7 +1082,7 @@ app.get('/api/connections/:id/baselines', (req, res) => {
   if (!c) return;
   const kpi = parseKpi(req.query.kpi);
   if (!kpi) return res.status(400).json({ error: 'Invalid kpi' });
-  res.json({ kpi, baselines: metricsStore.getBaselines(c.instanceKey, kpi) });
+  res.json({ kpi, baselines: metricsStore.getBaselines(c.instanceKey || c.server, kpi) });
 });
 
 app.get('/api/persistence/status', (_req, res) => {
