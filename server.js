@@ -1013,11 +1013,16 @@ app.get('/api/connections/:id/db-size-history', (req, res) => {
 });
 
 // ─── Metrics history (SQLite persistence) ─────────────────────────────────────
+const MAX_HISTORY_SPAN_MS = 90 * 24 * 3600 * 1000;
+
 app.get('/api/connections/:id/history', (req, res) => {
   const conn = requireConn(req, res);
   if (!conn) return;
   const range = parseHistoryRange(req.query);
   if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  if (range.to - range.from > MAX_HISTORY_SPAN_MS) {
+    return res.status(400).json({ error: 'range too large (max 90 days)' });
+  }
   const resolution = req.query.resolution || 'auto';
   if (!VALID_RESOLUTIONS.includes(resolution)) return res.status(400).json({ error: 'Invalid resolution.' });
   res.json(metricsStore.getHistory(conn.instanceKey || conn.server, range.from, range.to, resolution));
@@ -1028,6 +1033,9 @@ app.get('/api/connections/:id/history/waits', (req, res) => {
   if (!conn) return;
   const range = parseHistoryRange(req.query);
   if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  if (range.to - range.from > MAX_HISTORY_SPAN_MS) {
+    return res.status(400).json({ error: 'range too large (max 90 days)' });
+  }
   res.json(metricsStore.getWaitHistory(conn.instanceKey || conn.server, range.from, range.to));
 });
 
@@ -1036,6 +1044,9 @@ app.get('/api/connections/:id/history/blocking', (req, res) => {
   if (!conn) return;
   const range = parseHistoryRange(req.query);
   if (!range) return res.status(400).json({ error: 'Invalid from/to — positive epoch-ms integers with from < to.' });
+  if (range.to - range.from > MAX_HISTORY_SPAN_MS) {
+    return res.status(400).json({ error: 'range too large (max 90 days)' });
+  }
   res.json(metricsStore.getBlockingHistory(conn.instanceKey || conn.server, range.from, range.to));
 });
 
@@ -1252,7 +1263,10 @@ function runMetricsMaintenance() {
   if (next <= now) next.setHours(next.getHours() + 1);
   setTimeout(function run() {
     runMetricsMaintenance();
-    setTimeout(run, 60 * 60 * 1000);
+    const next = new Date();
+    next.setMinutes(5, 0, 0);
+    if (next <= new Date()) next.setHours(next.getHours() + 1);
+    setTimeout(run, next.getTime() - Date.now());
   }, next - now);
 })();
 

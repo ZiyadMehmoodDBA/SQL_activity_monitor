@@ -325,7 +325,7 @@ function health(now = Date.now()) {
     const recentRows = db.prepare('SELECT COUNT(*) AS n FROM samples_raw WHERE ts > ?').get(now - 60_000).n;
     return {
       enabled: true,
-      dbPath: db.name,
+      dbPath: path.basename(db.name),
       dbSizeBytes: fileSize(db.name),
       walSizeBytes: fileSize(db.name + '-wal'),
       freelistCount: db.pragma('freelist_count', { simple: true }),

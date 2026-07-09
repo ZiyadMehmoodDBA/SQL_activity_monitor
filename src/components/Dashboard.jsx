@@ -315,7 +315,7 @@ export default memo(function Dashboard({ connId }) {
     setTopN(10)
     setDbFilter('')
     setQueryView(null)
-    setHistRange(null); setHistData(null); setHistError(null)
+    setHistRange(null); setHistData(null); setHistError(null); setHistLoading(false);
   }, [connId])
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
