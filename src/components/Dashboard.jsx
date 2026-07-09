@@ -10,6 +10,8 @@ import { TABLE_COLS } from '../lib/tableCols'
 import { WIDGET_REGISTRY } from '../lib/widgetRegistry'
 import KPIBar from './KPIBar'
 import ChartCard from './ChartCard'
+import HistoryRangePicker from './HistoryRangePicker'
+import { buildHistorySeries } from '../lib/historySeries'
 import JobsPanel from './JobsPanel'
 import QueryOptimizationSection from './QueryOptimizationSection'
 import SessionsPanel from './SessionsPanel'
@@ -283,12 +285,12 @@ const VTABLE_SECTION_CFG = {
 // ── Chart config builder (pure, no side effects) ──────────────────────────────
 function buildCharts(m, sp, conn, p) {
   return [
-    { id: 'chart_cpu',          title: '% Processor Time',    subtitle: 'SQL CPU utilization',          value: m ? m.cpu_percent + '%' : '--',                        color: p.chartCpu,   yMax: 100,  history: conn.history.cpu },
-    { id: 'chart_wait',         title: 'Waiting Tasks',        subtitle: 'Suspended / waiting requests', value: m ? m.waiting_tasks : '--',                            color: p.chartWait,  yMax: null, history: conn.history.wait },
-    { id: 'chart_io',           title: 'Database I/O',         subtitle: 'MB/s read + write',            value: m ? m.db_io_mb + ' MB/s' : '--',                       color: p.chartIo,    yMax: null, history: conn.history.io },
-    { id: 'chart_batch',        title: 'Batch Requests/sec',   subtitle: 'Batches received per second',  value: m ? m.batch_requests?.toLocaleString() : '--',         color: p.chartBatch, yMax: null, history: conn.history.batch },
-    { id: 'chart_net',          title: 'Network I/O',          subtitle: 'MB/s SQL connections',         value: m ? (sp.netMbs || 0) + ' MB/s' : '--',                 color: p.chartIo,    yMax: null, history: conn.history.netMb },
-    { id: 'chart_compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,   yMax: null, history: conn.history.compilations },
+    { id: 'chart_cpu',          histKey: 'cpu',          title: '% Processor Time',    subtitle: 'SQL CPU utilization',          value: m ? m.cpu_percent + '%' : '--',                        color: p.chartCpu,   yMax: 100,  history: conn.history.cpu },
+    { id: 'chart_wait',         histKey: 'wait',         title: 'Waiting Tasks',        subtitle: 'Suspended / waiting requests', value: m ? m.waiting_tasks : '--',                            color: p.chartWait,  yMax: null, history: conn.history.wait },
+    { id: 'chart_io',           histKey: 'io',           title: 'Database I/O',         subtitle: 'MB/s read + write',            value: m ? m.db_io_mb + ' MB/s' : '--',                       color: p.chartIo,    yMax: null, history: conn.history.io },
+    { id: 'chart_batch',        histKey: 'batch',        title: 'Batch Requests/sec',   subtitle: 'Batches received per second',  value: m ? m.batch_requests?.toLocaleString() : '--',         color: p.chartBatch, yMax: null, history: conn.history.batch },
+    { id: 'chart_net',          histKey: 'netMb',        title: 'Network I/O',          subtitle: 'MB/s SQL connections',         value: m ? (sp.netMbs || 0) + ' MB/s' : '--',                 color: p.chartIo,    yMax: null, history: conn.history.netMb },
+    { id: 'chart_compilations', histKey: 'compilations', title: 'Compilations/sec',     subtitle: 'SQL compilations per second',  value: m ? (sp.compilationsSec || 0).toLocaleString() : '--', color: p.chartCpu,   yMax: null, history: conn.history.compilations },
   ]
 }
 
@@ -304,10 +306,15 @@ export default memo(function Dashboard({ connId }) {
   const [topN,       setTopN]       = useState(10)
   const [dbFilter,   setDbFilter]   = useState('')
   const [killResult, setKillResult] = useState(null)
+  const [histRange, setHistRange]     = useState(null)  // null = Live
+  const [histData, setHistData]       = useState(null)  // { resolution, timestamps, series, blocking, waits }
+  const [histLoading, setHistLoading] = useState(false)
+  const [histError, setHistError]     = useState(null)
   useEffect(() => {
     setTopN(10)
     setDbFilter('')
     setQueryView(null)
+    setHistRange(null); setHistData(null); setHistError(null)
   }, [connId])
   const killResultTimer = useRef(null)
   const showKillResult = useCallback(result => {
@@ -316,6 +323,31 @@ export default memo(function Dashboard({ connId }) {
     killResultTimer.current = setTimeout(() => setKillResult(null), 5000)
   }, [])
   useEffect(() => () => clearTimeout(killResultTimer.current), [])
+
+  useEffect(() => {
+    if (!histRange) { setHistData(null); setHistError(null); return }
+    let cancelled = false
+    setHistLoading(true)
+    setHistError(null)
+    const qs = `from=${histRange.from}&to=${histRange.to}`
+    Promise.all([
+      fetch(`/api/connections/${connId}/history?${qs}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`History fetch failed (HTTP ${r.status})`))),
+      fetch(`/api/connections/${connId}/history/blocking?${qs}`)
+        .then(r => r.ok ? r.json() : { rows: [] }),
+      fetch(`/api/connections/${connId}/history/waits?${qs}`)
+        .then(r => r.ok ? r.json() : { rows: [] }),
+    ]).then(([hist, blocking, waits]) => {
+      if (cancelled) return
+      const { timestamps, series } = buildHistorySeries(hist.rows, hist.resolution)
+      setHistData({ resolution: hist.resolution, timestamps, series, blocking: blocking.rows || [], waits: waits.rows || [] })
+    }).catch(err => {
+      if (!cancelled) setHistError(err.message)
+    }).finally(() => {
+      if (!cancelled) setHistLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [histRange, connId])
 
   if (!conn) return null
 
@@ -705,6 +737,27 @@ export default memo(function Dashboard({ connId }) {
       {/* KPI bar */}
       {on('kpi_bar') && <KPIBar conn={conn} />}
 
+      <HistoryRangePicker value={histRange} onChange={setHistRange} />
+      {histRange && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-2 rounded-lg"
+          style={{ background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.25)', fontSize: 12 }}>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+            Viewing history{histData?.resolution ? ` — ${histData.resolution} resolution` : ''}
+            {histLoading ? ' (loading…)' : ''}
+          </span>
+          {histError && <span style={{ color: '#dc2626' }}>{histError}</span>}
+          {!histLoading && !histError && histData && histData.timestamps.length === 0 && (
+            <span style={{ color: 'var(--text-muted)' }}>
+              No history for this range — the store may be disabled or the range predates available data.
+            </span>
+          )}
+          <button onClick={() => setHistRange(null)} className="ml-auto"
+            style={{ fontSize: 11, fontWeight: 600, color: 'var(--sort-active)', cursor: 'pointer', background: 'none', border: 'none' }}>
+            Back to Live
+          </button>
+        </div>
+      )}
+
       {/* Charts — chart instances are kept mounted to avoid ApexCharts
            destroy/create cycles on toggle; display:none hides without unmounting.
            overflow:hidden on both the grid and each cell prevents ApexCharts
@@ -717,9 +770,10 @@ export default memo(function Dashboard({ connId }) {
           <div key={c.id} style={on(c.id) ? { overflow: 'hidden' } : { display: 'none' }}>
             <ChartCard
               title={c.title}
-              subtitle={c.subtitle}
+              subtitle={histRange ? `History — ${histRange.key}` : c.subtitle}
               value={c.value}
-              history={c.history}
+              history={histRange ? (histData?.series?.[c.histKey] ?? []) : c.history}
+              timestamps={histRange ? (histData?.timestamps ?? []) : undefined}
               color={c.color}
               yMax={c.yMax}
             />

@@ -9,11 +9,14 @@ function axFmt(v) {
   return String(Math.round(v))
 }
 
-export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax }) {
-  const series = useMemo(() => [{
-    name: title,
-    data: history && history.length > 0 ? history : Array(60).fill(null),
-  }], [history, title])
+export default memo(function ChartCard({ title, subtitle, value, unit, history, color, yMax, timestamps }) {
+  const series = useMemo(() => {
+    const data = history && history.length > 0 ? history : Array(60).fill(null)
+    if (timestamps && history && history.length > 0 && timestamps.length === history.length) {
+      return [{ name: title, data: history.map((y, i) => ({ x: timestamps[i], y })) }]
+    }
+    return [{ name: title, data }]
+  }, [history, timestamps, title])
 
   const options = useMemo(() => ({
     chart: {
@@ -47,6 +50,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
     },
     colors: [color],
     xaxis: {
+      ...(timestamps ? { type: 'datetime' } : {}),
       labels:     { show: false },
       axisBorder: { show: false },
       axisTicks:  { show: false },
@@ -75,7 +79,8 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
       theme: 'dark',
       style: { fontSize: '11px' },
       x: {
-        formatter: (_, { dataPointIndex, w }) => {
+        formatter: (val, { dataPointIndex, w }) => {
+          if (timestamps) return new Date(val).toLocaleString()
           const total = w.globals.series[0].length
           const ago = (total - 1 - dataPointIndex) * 2
           return ago === 0 ? 'Now' : `${ago}s ago`
@@ -88,7 +93,7 @@ export default memo(function ChartCard({ title, subtitle, value, unit, history, 
         },
       },
     },
-  }), [color, yMax, title])
+  }), [color, yMax, title, timestamps])
 
   return (
     // overflow:hidden prevents ApexCharts from momentarily overflowing the card boundary,
