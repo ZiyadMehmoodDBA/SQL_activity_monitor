@@ -82,9 +82,65 @@ function getServerId(instanceKey, displayName, now) {
   return id;
 }
 
-// Implemented in Task 4 — no-ops for now so the transaction shape is final.
-function writeBlocking(_serverId, _blocking, _now) {}
-function writeWaits(_serverId, _resourceWaits, _now) {}
+const WAITS_INTERVAL_MS = 60_000;
+const BLOCKING_DEDUPE_MS = 60_000;
+
+function writeWaits(serverId, resourceWaits, now) {
+  if (!Array.isArray(resourceWaits) || resourceWaits.length === 0) return;
+  let state = waitState.get(serverId);
+  if (!state) { state = { lastWriteTs: 0, baseline: null }; waitState.set(serverId, state); }
+  if (state.baseline && now - state.lastWriteTs < WAITS_INTERVAL_MS) return;
+
+  const current = new Map(resourceWaits.map(w => [w.wait_type, w]));
+  if (!state.baseline) {
+    state.baseline = current;
+    state.lastWriteTs = now;
+    return;
+  }
+  // Any negative delta means the DMV counters were reset (SQL restart or
+  // DBCC SQLPERF clear) — re-baseline and skip this write entirely.
+  for (const [type, w] of current) {
+    const prev = state.baseline.get(type);
+    if (prev && (num(w.wait_time_ms) < num(prev.wait_time_ms)
+              || num(w.signal_wait_time_ms) < num(prev.signal_wait_time_ms)
+              || num(w.waiting_tasks_count) < num(prev.waiting_tasks_count))) {
+      state.baseline = current;
+      state.lastWriteTs = now;
+      return;
+    }
+  }
+  for (const [type, w] of current) {
+    const prev = state.baseline.get(type);
+    if (!prev) continue; // first sighting: no baseline for this type yet
+    const dWait   = num(w.wait_time_ms)        - num(prev.wait_time_ms);
+    const dTasks  = num(w.waiting_tasks_count) - num(prev.waiting_tasks_count);
+    const dSignal = num(w.signal_wait_time_ms) - num(prev.signal_wait_time_ms);
+    if (dWait === 0 && dTasks === 0 && dSignal === 0) continue;
+    stmts.insertWait.run(serverId, now, type, dWait, dTasks, dSignal);
+  }
+  state.baseline = current;
+  state.lastWriteTs = now;
+}
+
+function writeBlocking(serverId, blocking, now) {
+  if (!Array.isArray(blocking) || blocking.length === 0) return;
+  let recent = blockingRecent.get(serverId);
+  if (!recent) { recent = new Map(); blockingRecent.set(serverId, recent); }
+  for (const [k, ts] of recent) if (now - ts >= BLOCKING_DEDUPE_MS) recent.delete(k);
+  for (const b of blocking) {
+    const key = `${b.blocking_session_id}|${b.blocked_session_id}|${b.wait_type ?? ''}|${b.database_name ?? ''}`;
+    if (recent.has(key)) continue;
+    recent.set(key, now);
+    stmts.insertBlocking.run(
+      serverId, now,
+      num(b.blocking_session_id), num(b.blocked_session_id),
+      b.wait_type ?? null, num(b.wait_time), b.database_name ?? null,
+      b.blocker_login ?? null, b.blocker_host ?? null, b.blocker_program ?? null,
+      b.blocked_login ?? null, b.blocked_host ?? null,
+      b.blocker_query ?? null, b.blocked_query ?? null, b.parent_object ?? null
+    );
+  }
+}
 
 function initialize(dbPath) {
   try {
