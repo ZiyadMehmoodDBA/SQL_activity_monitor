@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const schema = require('./metricsSchema');
 const { runRollup } = require('./metricsRollup');
+const retention = require('./metricsRetention');
 
 let db = null;
 let enabled = false;
@@ -197,4 +198,70 @@ function rollup(now = Date.now()) {
   }
 }
 
-module.exports = { initialize, insertSnapshot, rollup, close, _db };
+function prune(now = Date.now()) {
+  if (!enabled) return;
+  try {
+    retention.prune(db, now);
+    stmts.metaSet.run('last_prune_at', String(now), now);
+  } catch (err) {
+    console.error('[metrics-db] prune failed:', err.message);
+  }
+}
+
+function vacuum(now = Date.now()) {
+  if (!enabled) return;
+  try {
+    if (retention.vacuumIfNeeded(db)) stmts.metaSet.run('last_vacuum_at', String(now), now);
+  } catch (err) {
+    console.error('[metrics-db] vacuum failed:', err.message);
+  }
+}
+
+function checkpoint(now = Date.now()) {
+  if (!enabled) return;
+  try {
+    retention.checkpoint(db);
+    stmts.metaSet.run('last_checkpoint_at', String(now), now);
+  } catch (err) {
+    console.error('[metrics-db] checkpoint failed:', err.message);
+  }
+}
+
+const COUNTED_TABLES = ['samples_raw', 'samples_1m', 'samples_15m', 'samples_1h', 'waits_samples', 'blocking_events'];
+
+function health(now = Date.now()) {
+  if (!enabled) return { enabled: false };
+  try {
+    const fileSize = p => { try { return fs.statSync(p).size; } catch { return 0; } };
+    const counts = {};
+    for (const t of COUNTED_TABLES) {
+      counts[t] = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+    }
+    const servers = db.prepare(`
+      SELECT s.id, s.instance_key, s.display_name, s.first_seen, s.last_seen,
+        (SELECT MIN(ts) FROM samples_raw WHERE server_id = s.id) AS oldest_raw,
+        (SELECT MAX(ts) FROM samples_raw WHERE server_id = s.id) AS newest_raw
+      FROM servers s ORDER BY s.instance_key`).all();
+    const meta = Object.fromEntries(
+      db.prepare('SELECT key, value FROM meta').all().map(r => [r.key, r.value]));
+    const recentRows = db.prepare('SELECT COUNT(*) AS n FROM samples_raw WHERE ts > ?').get(now - 60_000).n;
+    return {
+      enabled: true,
+      dbPath: db.name,
+      dbSizeBytes: fileSize(db.name),
+      walSizeBytes: fileSize(db.name + '-wal'),
+      freelistCount: db.pragma('freelist_count', { simple: true }),
+      pageCount: db.pragma('page_count', { simple: true }),
+      schemaVersion: db.pragma('user_version', { simple: true }),
+      migrations: db.prepare('SELECT version, applied_at, description FROM schema_migrations ORDER BY version').all(),
+      servers, counts, meta,
+      insertErrorCount: insertErrors,
+      rawInsertRatePerSec: recentRows / 60,
+    };
+  } catch (err) {
+    console.error('[metrics-db] health failed:', err.message);
+    return { enabled: true, error: err.message };
+  }
+}
+
+module.exports = { initialize, insertSnapshot, rollup, prune, vacuum, checkpoint, health, close, _db };
