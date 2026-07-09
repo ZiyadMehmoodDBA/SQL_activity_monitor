@@ -6,6 +6,7 @@ import {
   getSessionPassword, setSessionPassword, clearSessionPassword,
   migrateLegacyStorage,
 } from '../lib/profileStore'
+import { normalizeAlertRow } from '../lib/alertFmt.js'
 
 const RETRY_DELAY_MS     = 5000
 const REFRESH_TIMEOUT_MS = 12000
@@ -85,6 +86,11 @@ export function ConnectionProvider({ children }) {
       dispatch({ type: 'UPDATE_PROFILE', id: profile.id, updates: { lastConnectedAt: new Date().toISOString() } })
       subscribe(profile.id)
       retriedRef.current.delete(profile.id)
+      const _id = profile.id
+      fetch(`/api/connections/${_id}/alerts?active=1`)
+        .then((r) => (r.ok ? r.json() : { alerts: [] }))
+        .then(({ alerts }) => dispatch({ type: 'ALERTS_LOADED', connId: _id, alerts: alerts.map(normalizeAlertRow) }))
+        .catch(() => {})
     } catch (err) {
       const status = profile.authenticationType === 'sql' && !password ? 'expired' : 'failed'
       dispatch({ type: 'SET_STATUS', id: profile.id, status, error: err.message })
@@ -156,7 +162,12 @@ export function ConnectionProvider({ children }) {
       }
     })
 
-    return () => { socket.disconnect(); socketRef.current = null }
+    const onAlert = (payload) => {
+      dispatch({ type: 'ALERT_EVENT', connId: payload.connectionId, alert: payload })
+    }
+    socket.on('alert', onAlert)
+
+    return () => { socket.off('alert', onAlert); socket.disconnect(); socketRef.current = null }
   }, [retryOnce, settleRefresh])
 
   useEffect(() => {
@@ -215,6 +226,10 @@ export function ConnectionProvider({ children }) {
     }
     dispatch({ type: 'ADD_PROFILE', profile })
     subscribe(id)
+    fetch(`/api/connections/${id}/alerts?active=1`)
+      .then((r) => (r.ok ? r.json() : { alerts: [] }))
+      .then(({ alerts }) => dispatch({ type: 'ALERTS_LOADED', connId: id, alerts: alerts.map(normalizeAlertRow) }))
+      .catch(() => {})
   }, [subscribe])
 
   const updateConnection = useCallback(async (id, updates) => {
@@ -304,6 +319,8 @@ export function ConnectionProvider({ children }) {
     selectedConnectionId: state.selectedConnectionId,
     isInitializing: state.isInitializing,
     isRefreshing: state.isRefreshing,
+    lastAlertEvent: state.lastAlertEvent,
+    deepLink: state.deepLink,
     enrichedConnections,
     selectedConnection,
     selectedMetrics: selectedConnection?.metrics ?? null,

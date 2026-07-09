@@ -30,6 +30,7 @@ export function makeLive(profile) {
     jobsFilter: 'all',
     jobsSearch: '',
     jobsSort: { col: null, dir: 'asc' },
+    alerts: [],
     expandedSessionGroups: new Set(),
     collapsedSections: new Set(ALL_SECTIONS_COLLAPSED),
     sortState: {
@@ -63,6 +64,8 @@ export const initialConnectionState = {
   selectedConnectionId: null,
   isInitializing: true,
   isRefreshing: false,
+  lastAlertEvent: null,
+  deepLink: null,
 }
 
 function updateConn(state, connId, patch) {
@@ -204,6 +207,34 @@ export function connectionReducer(state, action) {
         sortState: { ...conn.sortState, [action.tableId]: { col: action.col, dir: action.dir } },
       })
     }
+    case 'ALERT_EVENT': {
+      const conn = state.connections[action.connId]
+      if (!conn) return state
+      const a = action.alert
+      const rest = (conn.alerts || []).filter((x) => x.id !== a.id)
+      const alerts = a.resolvedAt ? rest : [...rest, a]
+      const next = updateConn(state, action.connId, { alerts })
+      return {
+        ...next,
+        lastAlertEvent: { connId: action.connId, alert: a, seq: (state.lastAlertEvent?.seq || 0) + 1 },
+      }
+    }
+    case 'ALERTS_LOADED': {
+      const conn = state.connections[action.connId]
+      if (!conn) return state
+      return updateConn(state, action.connId, { alerts: action.alerts })
+    }
+    case 'ALERT_ACKED': {
+      const conn = state.connections[action.connId]
+      if (!conn) return state
+      return updateConn(state, action.connId, {
+        alerts: (conn.alerts || []).map((a) => (a.id === action.alertId ? { ...a, ackedAt: action.ackedAt } : a)),
+      })
+    }
+    case 'SET_DEEP_LINK':
+      return { ...state, deepLink: { connId: action.connId, from: action.from, to: action.to } }
+    case 'CLEAR_DEEP_LINK':
+      return { ...state, deepLink: null }
     default:
       return state
   }
