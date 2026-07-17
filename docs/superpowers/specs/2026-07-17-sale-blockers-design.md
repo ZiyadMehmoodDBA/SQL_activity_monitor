@@ -52,8 +52,12 @@ rules their trail; the alertBus gives rules a delivery path that needs no change
 ### Architecture
 
 **Session-based auth, not JWT.** On-prem single server: `express-session` with a
-SQLite-backed session store, httpOnly cookie (`SameSite=Lax`; `Secure` when behind
-TLS). Sessions are revocable instantly (delete row); no token-refresh machinery.
+**small custom SQLite session store** (~60 lines), not an off-the-shelf store —
+library stores (connect-sqlite3 and friends) bring their own `sid/expired/sess`
+blob schema and cannot populate the `user_id` column that makes revoke-by-user a
+one-query operation. The custom store owns the `sessions` schema in Appendix A.
+httpOnly cookie (`SameSite=Lax`; `Secure` when behind TLS). Sessions are revocable
+instantly (delete row); no token-refresh machinery.
 Session-store writes are throttled (touch at most once per few minutes per session)
 so dashboard polling does not hammer SQLite. Socket.io reuses the same session via
 handshake middleware — connection rejected without a valid session.
@@ -99,8 +103,10 @@ first-come-first-owned race on upgrades: today's installs are open on the networ
 and without the token, whoever visits the bootstrap screen first after an upgrade
 would own the system. The token converts "network access = ownership" into "server
 access = ownership" — the trust model everything else in R1 assumes. No default
-credentials are ever shipped. Successful bootstrap writes an `admin.bootstrap`
-audit event (the genesis of the trust chain) and deletes the token file.
+credentials are ever shipped. The token regenerates on every restart while the
+users table is empty, so a token from a log rotated weeks ago is never still
+live. Successful bootstrap writes an `admin.bootstrap` audit event (the genesis
+of the trust chain) and deletes the token file.
 
 **Recovery:** `reset-admin.js` CLI (run on the server host, filesystem access is
 the trust boundary) resets an admin password or re-creates the bootstrap state.
@@ -243,14 +249,23 @@ these invariants:
    alert that resolved hours ago.
 2. **Close is sent only if the matching open was sent** on that channel. A
    "recovered" notice for an alert nobody was told about erodes trust. Implemented
-   as an outbox lookup on `(alert_id, channel_id)`.
+   as an outbox lookup on `(alert_id, channel_id)`. Because this lookup is the
+   invariant's source of truth, sent outbox rows are pruned **only after their
+   alert has closed** (7 days post-close, never while open) — a long-open alert (a
+   backup failing for 9 days, a replica down through a change freeze) must still
+   get its recovery notice.
 3. **Upward severity transitions bypass cooldown.** A warning at 10:00 must not
    swallow the critical at 10:08. (With R3, warning and critical are separate
    rules, so this is the natural behavior; the invariant is pinned by tests.)
 
 **Flap suppression:** notifier-level cooldown — no repeated open-notification for
 the same (rule, connection, channel) within 15 minutes (configurable per channel) —
-on top of the evaluator's existing hysteresis.
+on top of the evaluator's existing hysteresis. **Cooldown key transition:** at R2,
+rules don't exist yet, so the key is `(kpi, serverId, channel)` — safe because
+there is exactly one hardcoded rule per KPI. R3 re-keys the cooldown on
+`(ruleId, serverId, channel)` when `rule_id` is present; without the re-key, a
+warning rule's cooldown would wrongly suppress a critical rule's open on the same
+KPI, silently violating invariant 3. This transition is an explicit R3 plan task.
 
 **Storm cap:** rolling window, per channel (a flapping webhook must not silence
 email), default 30 notifications/hour. On trip: one "storm suppressed, see
@@ -268,7 +283,8 @@ when any channel exceeds 5 consecutive failures.
 `notification_outbox` table: payload snapshotted at write time (a retried send must
 show the value that triggered it), attempts, next_attempt_ts, status
 (`pending`/`sent`/`failed`/`stale`). Retry backoff 30s → 2m → 10m, then `failed`.
-Unsent rows resume on boot. Sent rows pruned after 7 days.
+Unsent rows resume on boot. Sent rows pruned 7 days **after their alert closes**
+(see pairing rule 2 — never pruned while the alert is open).
 
 **Filters run before the outbox.** min_severity and open/close settings are
 evaluated at dispatch decision time; an outbox row means "we intend to deliver
@@ -300,6 +316,14 @@ failures), test-send button (payload clearly marked TEST in subject and body so
 nobody pages themselves; raw transport error surfaced to the admin on failure —
 not a generic message). Channel changes → `channel.change` audit; test →
 `channel.test`.
+
+**Channel delete is a soft delete:** the row gets a `deleted` flag rather than
+being removed, so outbox history survives for the pairing lookup and audit trail;
+pending outbox rows for the channel flip to `stale`; the `channel.change` audit
+event records the channel snapshot. `PRAGMA foreign_keys` stays OFF (SQLite
+default — the existing metrics tables were not designed for enforcement);
+`REFERENCES` clauses in the DDL are documentation of intent, declared consistently
+on both `channel_id` and `alert_id`.
 
 ### Error handling
 
@@ -406,6 +430,13 @@ gap and is a trial-saving demo point.
 kpi via existing `parseKpi`; direction-consistent hysteresis (above:
 `threshold_close ≤ threshold_open`; below: reversed); `duration_sec ≥ 60`; severity
 enum. Reject invalid input; never clamp silently.
+
+**Duplicate-rule policy:** baseline rules are exactly the six seeded rows —
+editable, not creatable or deletable in v1 (consistent with "no new alert
+sources"). Threshold rules allow multiple per (server, kpi) — that is how
+warning + critical coexist — but validation rejects an exact duplicate of
+`(server_id, kpi, mode, severity, direction)`. Enforced in validation code, not a
+UNIQUE constraint, so the error message is human.
 
 ### UI
 
@@ -546,10 +577,15 @@ CREATE TABLE notification_channels (
   config       TEXT NOT NULL,           -- JSON: email {recipients[]},
                                         --       webhook {url, hmac_secret?}
   enabled      INTEGER NOT NULL DEFAULT 1,
+  deleted      INTEGER NOT NULL DEFAULT 0,  -- soft delete: outbox history and
+                                            -- pairing lookups survive
   events       TEXT NOT NULL DEFAULT 'both'
                CHECK (events IN ('open','close','both')),
   min_severity TEXT NOT NULL DEFAULT 'warning'
                CHECK (min_severity IN ('warning','critical')),
+               -- 'warning' default is intentional forward-compatibility: inert at
+               -- R2 (all alerts hardcoded critical), correct the moment R3
+               -- introduces warning severity. Not a bug.
   cooldown_sec INTEGER NOT NULL DEFAULT 900,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
@@ -557,8 +593,10 @@ CREATE TABLE notification_channels (
 
 CREATE TABLE notification_outbox (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- REFERENCES clauses document intent only: PRAGMA foreign_keys stays OFF
+  -- (SQLite default; existing metrics tables not designed for enforcement)
   channel_id      INTEGER NOT NULL REFERENCES notification_channels(id),
-  alert_id        INTEGER NOT NULL,
+  alert_id        INTEGER NOT NULL REFERENCES alerts(id),
   event           TEXT NOT NULL CHECK (event IN ('open','close')),
                   -- storm meta-notifications and test-sends go direct,
                   -- never through the outbox
@@ -621,3 +659,10 @@ ALTER TABLE alerts ADD COLUMN resolution_reason TEXT;    -- 'rule_deleted' |
 4. `TRUST_PROXY` flag shared between session security and audit IP capture (R1).
 5. Docker × `AUTH_DISABLED` × `HOST=0.0.0.0` interaction — decide at packaging time.
 6. Verify metricsStore schema-init mechanism before writing the R1 migration runner.
+7. Migration runner checks free disk before `VACUUM INTO` — the backup of a 90-day
+   metrics DB is roughly a full copy; failing mid-backup is worse than refusing to
+   start (R1).
+8. Historical `alerts.severity` NULL renders as "critical" in the UI — that is
+   what those alerts factually were (R3).
+9. Cooldown re-key from `(kpi, serverId, channel)` to `(ruleId, serverId,
+   channel)` is an explicit R3 plan task (see §4 flap suppression).
