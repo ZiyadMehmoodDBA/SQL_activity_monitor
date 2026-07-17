@@ -320,10 +320,11 @@ not a generic message). Channel changes → `channel.change` audit; test →
 **Channel delete is a soft delete:** the row gets a `deleted` flag rather than
 being removed, so outbox history survives for the pairing lookup and audit trail;
 pending outbox rows for the channel flip to `stale`; the `channel.change` audit
-event records the channel snapshot. `PRAGMA foreign_keys` stays OFF (SQLite
-default — the existing metrics tables were not designed for enforcement);
-`REFERENCES` clauses in the DDL are documentation of intent, declared consistently
-on both `channel_id` and `alert_id`.
+event records the channel snapshot. **Correction from implementation planning:**
+`PRAGMA foreign_keys = ON` is already set globally (`metricsSchema.js
+applyPragmas`), so `REFERENCES` clauses are enforced — one more reason soft delete
+is right (a hard delete of a channel with outbox history would fail on the FK).
+Declared consistently on both `channel_id` and `alert_id`.
 
 ### Error handling
 
@@ -486,8 +487,12 @@ closes the deal.
   throttling; split later only if it measurably bites.
 - Versioned, forward-only migrations keyed on `PRAGMA user_version`; each release
   ships exactly one migration, so "test the upgrade against a copy of a customer
-  DB" means something. (Verify metricsStore's current schema-init mechanism at plan
-  time; if no version mechanism exists, R1 introduces the runner.)
+  DB" means something. **Resolved at plan time:** the runner already exists —
+  `metricsSchema.js` has a `MIGRATIONS` array, `user_version` tracking, and a
+  `schema_migrations` history table, currently at version 2. R1/R2/R3 are
+  versions **3/4/5** in that array (Appendix A renumbered accordingly). R1 adds
+  the missing pieces to `migrate()`: `VACUUM INTO` backup before pending
+  migrations and the newer-than-code refusal.
 - **WAL-safe backup before every migration:** `VACUUM INTO` (online, produces a
   consistent single file; a bare file-copy misses committed data in the `-wal`
   file). The runner prints where the backup landed and the one-line restore
@@ -529,7 +534,11 @@ Progress tracked via task lists per plan.
 
 ## Appendix A — Migration inventory (full DDL)
 
-### Migration 1 (R1) — user_version → 1
+> **Numbering note (plan-time correction):** the existing `metricsSchema.js`
+> runner is already at user_version 2 (v1 metrics schema, v2 alerting). The
+> releases therefore ship versions 3, 4, 5.
+
+### Migration 3 (R1) — user_version → 3
 
 ```sql
 CREATE TABLE users (
@@ -567,7 +576,7 @@ CREATE INDEX idx_audit_user_ts   ON audit_log(user_id, ts);
 CREATE INDEX idx_audit_action_ts ON audit_log(action, ts);
 ```
 
-### Migration 2 (R2) — user_version → 2
+### Migration 4 (R2) — user_version → 4
 
 ```sql
 CREATE TABLE notification_channels (
@@ -613,7 +622,7 @@ CREATE INDEX idx_outbox_status_next   ON notification_outbox(status, next_attemp
 CREATE INDEX idx_outbox_alert_channel ON notification_outbox(alert_id, channel_id);
 ```
 
-### Migration 3 (R3) — user_version → 3
+### Migration 5 (R3) — user_version → 5
 
 ```sql
 CREATE TABLE alert_rules (
@@ -641,7 +650,8 @@ CREATE TABLE alert_rules (
 CREATE INDEX idx_rules_server_kpi ON alert_rules(server_id, kpi);
 
 ALTER TABLE alerts ADD COLUMN rule_id INTEGER;           -- NULL for historical rows
-ALTER TABLE alerts ADD COLUMN severity TEXT;             -- snapshot at open
+-- NOTE: alerts.severity already exists since migration v2 (DEFAULT 'critical');
+-- no ALTER needed — R3 just starts writing rule severity into it.
 ALTER TABLE alerts ADD COLUMN resolution_reason TEXT;    -- 'rule_deleted' |
                                                          -- 'rule_disabled' | NULL
 
@@ -658,7 +668,9 @@ ALTER TABLE alerts ADD COLUMN resolution_reason TEXT;    -- 'rule_deleted' |
 3. Rules cache swaps atomically between evaluator ticks (R3).
 4. `TRUST_PROXY` flag shared between session security and audit IP capture (R1).
 5. Docker × `AUTH_DISABLED` × `HOST=0.0.0.0` interaction — decide at packaging time.
-6. Verify metricsStore schema-init mechanism before writing the R1 migration runner.
+6. ~~Verify metricsStore schema-init mechanism~~ Resolved: runner exists in
+   `metricsSchema.js` (MIGRATIONS array, user_version at 2, WAL + foreign_keys
+   already ON). R1 adds backup + newer-version refusal to `migrate()`.
 7. Migration runner checks free disk before `VACUUM INTO` — the backup of a 90-day
    metrics DB is roughly a full copy; failing mid-backup is worse than refusing to
    start (R1).
